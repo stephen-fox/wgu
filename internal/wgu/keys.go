@@ -35,6 +35,11 @@ func NoisePrivateKeyFromBase64(b64 string) (*device.NoisePrivateKey, error) {
 		return nil, err
 	}
 
+	if len(b) != device.NoisePrivateKeySize {
+		return nil, fmt.Errorf("got incorrect number of bytes (%d), expected: %d",
+			len(b), device.NoisePrivateKeySize)
+	}
+
 	private := &device.NoisePrivateKey{}
 	copy(private[:], b)
 	return private, nil
@@ -44,6 +49,11 @@ func NoisePublicKeyFromBase64(b64 string) (*device.NoisePublicKey, error) {
 	b, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(b) != device.NoisePublicKeySize {
+		return nil, fmt.Errorf("got incorrect number of bytes (%d), expected: %d",
+			len(b), device.NoisePublicKeySize)
 	}
 
 	public := &device.NoisePublicKey{}
