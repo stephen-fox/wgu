@@ -27,6 +27,30 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 )
 
+const (
+	appName = "wgu"
+
+	usage = appName + `
+
+SYNOPSIS
+
+DESCRIPTION
+
+FORWARDING SPECIFICATION
+  Port forwards can be specified using the following specification format:
+    ` + forwardingSpecTemplate + `
+
+  For example, to forward connections to 127.0.0.1:22 on the host machine
+  to a WireGuard peer who has the virtual address of 10.0.0.1:
+    127.0.0.1:22->10.0.0.1:22
+
+OPTIONS
+`
+
+	addrTemplate           = "addr|us|peerN"
+	forwardingSpecTemplate = "listen-" + addrTemplate + ":port->dial-" + addrTemplate
+)
+
 var (
 	udpTimeout time.Duration
 
@@ -43,8 +67,24 @@ func main() {
 }
 
 func mainWithError() error {
-	var forwards forwardFlag
-	flag.Var(&forwards, "fwd", "TCP/UDP forwarding list (<tcp|udp>:[local-ip]:local-port:remote-ip:remote-port)")
+	// Disable annoying flag.PrintDefaults on flag parse error.
+	flag.Usage = func() {}
+
+	help := flag.Bool("h", false, "Display this information")
+
+	forwards := make(map[string]*forwardConfig)
+
+	tcpForwards := forwardFlag{
+		transport:     "tcp",
+		strsToConfigs: forwards,
+	}
+	flag.Var(&tcpForwards, "tcp", "TCP port forward `specification` (see -h for details)")
+
+	udpForwards := forwardFlag{
+		transport:     "udp",
+		strsToConfigs: forwards,
+	}
+	flag.Var(&udpForwards, "udp", "UDP port forward `specification` (see -h for details)")
 
 	wgConfig := flag.String("wg-config", "", "Wireguard config file")
 
@@ -59,6 +99,12 @@ func mainWithError() error {
 	writeWgIpcConfig := flag.Bool("write-wg-ipc-config", false, "")
 
 	flag.Parse()
+
+	if *help {
+		flag.CommandLine.Output().Write([]byte(usage))
+		flag.PrintDefaults()
+		os.Exit(1)
+	}
 
 	switch flag.Arg(0) {
 	case "genkey":
@@ -132,7 +178,7 @@ func mainWithError() error {
 	}
 
 	if *autoAddrPlanning {
-		err = doAutoAddrPlanning(cfg, &forwards)
+		err = doAutoAddrPlanning(cfg, forwards)
 		if err != nil {
 			return fmt.Errorf("failed to do automatic address planning - %w", err)
 		}
@@ -195,7 +241,7 @@ func mainWithError() error {
 	var localNetOp = &localNetOp{}
 	var tunnelNetOp = &tunnelNetOp{tnet}
 
-	for fwdStr, fwd := range forwards.strsToConfigs {
+	for fwdStr, fwd := range forwards {
 		lAddr, err := fwd.lAddr.toAddrPort()
 		if err != nil {
 			return fmt.Errorf("failed to parse listen addr port for %q - %w",
@@ -451,77 +497,83 @@ func (o addrPort) toAddrPort() (netip.AddrPort, error) {
 	return netip.AddrPortFrom(addr, o.port), nil
 }
 
+type forwardFlag struct {
+	transport     string
+	strsToConfigs map[string]*forwardConfig
+}
+
+func (o *forwardFlag) Set(fwd string) error {
+	_, alreadyHasIt := o.strsToConfigs[fwd]
+	if alreadyHasIt {
+		return errors.New("forward config already specified")
+	}
+
+	config, err := parseForwardingConfig(o.transport, fwd)
+	if err != nil {
+		return err
+	}
+
+	if o.strsToConfigs == nil {
+		o.strsToConfigs = make(map[string]*forwardConfig)
+	}
+
+	o.strsToConfigs["-"+o.transport+" "+fwd] = config
+
+	return nil
+}
+
+func parseForwardingConfig(transport string, fwd string) (*forwardConfig, error) {
+	components := strings.Split(fwd, "->")
+
+	numArrows := len(components)
+	if numArrows <= 1 {
+		return nil, errors.New("missing '->'")
+	}
+
+	if numArrows > 2 {
+		return nil, errors.New("contains more than one '->'")
+	}
+
+	listenAddr, err := strToAddrAndPort(components[0])
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse listen address %q - %w",
+			components[0], err)
+	}
+
+	dialAddr, err := strToAddrAndPort(components[1])
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse dial address %q - %w",
+			components[1], err)
+	}
+
+	return &forwardConfig{
+		proto: transport,
+		lAddr: listenAddr,
+		rAddr: dialAddr,
+	}, nil
+}
+
 type forwardConfig struct {
 	proto string
 	lAddr addrPort
 	rAddr addrPort
 }
 
-type forwardFlag struct {
-	strsToConfigs map[string]forwardConfig
-}
-
-func (o *forwardFlag) Set(fwd string) error {
-	_, alreadyHasIt := o.strsToConfigs[fwd]
-	if alreadyHasIt {
-		return fmt.Errorf("forward config already specified: %q", fwd)
-	}
-
-	// numArrows := strings.Count(fwd, "->")
-	// if numArrows == 0 {
-	// 	return fmt.Errorf("forward specification is missing '->' - %q", fwd)
-	// }
-
-	// if numArrows > 1 {
-	// 	return fmt.Errorf("forward specification has more than one '->' - %q", fwd)
-	// }
-
-	// parts := strings.SplitN(fwd, "->", 2)
-
-	components := strings.Split(fwd, ":")
-	if len(components) == 4 {
-		components = append([]string{components[0], "127.0.0.1"}, components[1:]...)
-	}
-
-	// -fwd tcp:127.0.0.1:4000:all_peers:22
-	// -tcp 127.0.0.1:4000->all_peers:22
-	// -udp
-	//
-	// udp:10.0.0.1:22:127.0.0.1:22
-	//   0        1  2         3  4
-	if len(components) != 5 {
-		return fmt.Errorf("invalid forward: %s", fwd)
-	}
-
-	listenPortStr := components[2]
-	listenPort, err := strToPort(listenPortStr)
+func strToAddrAndPort(str string) (addrPort, error) {
+	host, portStr, err := net.SplitHostPort(str)
 	if err != nil {
-		return fmt.Errorf("failed to parse listen port %q - %w", listenPortStr, err)
+		return addrPort{}, err
 	}
 
-	dialPortStr := components[4]
-	dialPort, err := strToPort(dialPortStr)
+	port, err := strToPort(portStr)
 	if err != nil {
-		return fmt.Errorf("failed to parse dial port %q - %w", dialPortStr, err)
+		return addrPort{}, err
 	}
 
-	if o.strsToConfigs == nil {
-		o.strsToConfigs = make(map[string]forwardConfig)
-	}
-
-	o.strsToConfigs[fwd] = forwardConfig{
-		proto: components[0],
-		lAddr: addrPort{
-			addr: components[1],
-			port: listenPort,
-		},
-		rAddr: addrPort{
-			addr: components[3],
-			port: dialPort,
-		},
-	}
-
-	return nil
+	return addrPort{
+		addr: host,
+		port: port,
+	}, nil
 }
 
 func strToPort(portStr string) (uint16, error) {
@@ -865,7 +917,7 @@ func parseConfigParamLine(line []byte) (string, string, error) {
 	return string(param), string(value), nil
 }
 
-func doAutoAddrPlanning(cfg *basicWGConfig, forwards *forwardFlag) error {
+func doAutoAddrPlanning(cfg *basicWGConfig, strsToConfigs map[string]*forwardConfig) error {
 	ourPub, err := cfg.ourPublicKey()
 	if err != nil {
 		return fmt.Errorf("failed to get our public key from config - %w", err)
@@ -916,19 +968,17 @@ func doAutoAddrPlanning(cfg *basicWGConfig, forwards *forwardFlag) error {
 		return fmt.Errorf("failed to automatically set peer address - %w", err)
 	}
 
-	for str, fwd := range forwards.strsToConfigs {
+	for str, fwd := range strsToConfigs {
 		if fwd.lAddr.addr == "us" {
 			fwd.lAddr.addr = ourIntAddr.String()
-			forwards.strsToConfigs[str] = fwd
 		}
 
 		if fwd.rAddr.addr == "us" {
 			fwd.rAddr.addr = ourIntAddr.String()
-			forwards.strsToConfigs[str] = fwd
 		}
 
 		if fwd.lAddr.addr == "all_peers" {
-			delete(forwards.strsToConfigs, str)
+			delete(strsToConfigs, str)
 
 			for _, peer := range peerAddrs {
 				addrPort := netip.AddrPortFrom(peer, fwd.lAddr.port)
@@ -941,12 +991,12 @@ func doAutoAddrPlanning(cfg *basicWGConfig, forwards *forwardFlag) error {
 
 				fwd.lAddr.addr = peer.String()
 
-				forwards.strsToConfigs[str] = fwd
+				strsToConfigs[str] = fwd
 			}
 		}
 
 		if fwd.rAddr.addr == "all_peers" {
-			delete(forwards.strsToConfigs, str)
+			delete(strsToConfigs, str)
 
 			for _, peer := range peerAddrs {
 				addrPort := netip.AddrPortFrom(peer, fwd.rAddr.port)
@@ -959,7 +1009,7 @@ func doAutoAddrPlanning(cfg *basicWGConfig, forwards *forwardFlag) error {
 
 				fwd.rAddr.addr = peer.String()
 
-				forwards.strsToConfigs[str] = fwd
+				strsToConfigs[str] = fwd
 			}
 		}
 	}
