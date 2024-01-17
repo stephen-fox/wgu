@@ -511,7 +511,7 @@ func (o *forwardFlag) Set(fwd string) error {
 }
 
 func strToPort(portStr string) (uint16, error) {
-	port, err := strconv.ParseInt(portStr, 10, 16)
+	port, err := strconv.ParseUint(portStr, 10, 16)
 	if err != nil {
 		return 0, err
 	}
