@@ -86,6 +86,20 @@ func mainWithError() error {
 		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(pub[:]) + "\n")
 
 		return nil
+	case "pubkey-from-config":
+		cfg, err := parseWgConfig(os.Stdin)
+		if err != nil {
+			return err
+		}
+
+		pubKey, err := cfg.ourPublicKey()
+		if err != nil {
+			return err
+		}
+
+		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(pubKey) + "\n")
+
+		return nil
 	}
 
 	switch *logLevelString {
