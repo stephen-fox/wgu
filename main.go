@@ -64,7 +64,7 @@ func mainWithError() error {
 	case "genkey":
 		privateKey, err := wgu.NewNoisePrivateKey()
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to generate private key - %w", err)
 		}
 
 		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(privateKey[:]) + "\n")
@@ -78,7 +78,7 @@ func mainWithError() error {
 
 		privateKey, err := wgu.NoisePrivateKeyFromBase64(string(privateKeyB64))
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to parse private key - %w", err)
 		}
 
 		pub := wgu.NoisePublicKeyFromPrivate(privateKey)
