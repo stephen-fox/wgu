@@ -3,13 +3,14 @@ package wgu
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 
 	"golang.org/x/crypto/curve25519"
 	"golang.zx2c4.com/wireguard/device"
 )
 
 func NewNoisePrivateKey() (*device.NoisePrivateKey, error) {
-	b := make([]byte, 32)
+	b := make([]byte, device.NoisePrivateKeySize)
 	_, err := rand.Read(b)
 	if err != nil {
 		return nil, err
