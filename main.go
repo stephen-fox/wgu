@@ -38,17 +38,37 @@ DESCRIPTION
 
 FORWARDING SPECIFICATION
   Port forwards can be specified using the following specification format:
-    ` + forwardingSpecTemplate + `
 
-  For example, to forward connections to 127.0.0.1:22 on the host machine
-  to a WireGuard peer who has the virtual address of 10.0.0.1:
+    listen-address:port->dial-address:port
+
+  For example, the following specification forwards connections to
+  127.0.0.1:22 on the host machine to a WireGuard peer who has the
+  virtual address of 10.0.0.1:
+
     127.0.0.1:22->10.0.0.1:22
+
+  The addresses are checked against the IP address of the virtual WireGuard
+  interface and a series of magic strings.
+
+  The "listen-address" and "dial-address" values can be replaced with
+  magic strings that are expanded to the corresponding address.
+  Note: Strings marked with "*" are only expanded in automatic address
+  planning mode.
+
+    us
+      The first IP address of the virtual WireGuard interface
+
+    peerN*
+      The address of peer number N as they appear in the WireGuard
+      configuration file. For example, "peer0" would be the address
+      of the first peer in the WireGuard configuration file
+
+    <pub-base64>*
+      The address of the peer with the corresponding base64-encoded
+      public key
 
 OPTIONS
 `
-
-	addrTemplate           = "addr|us|peerN"
-	forwardingSpecTemplate = "listen-" + addrTemplate + ":port->dial-" + addrTemplate
 )
 
 var (
@@ -177,8 +197,9 @@ func mainWithError() error {
 		return fmt.Errorf("failed to parse wireguard config file - %w", err)
 	}
 
+	var optAutoPeers []autoPeer
 	if *autoAddrPlanning {
-		err = doAutoAddrPlanning(cfg, forwards)
+		optAutoPeers, err = doAutoAddrPlanning(cfg, forwards)
 		if err != nil {
 			return fmt.Errorf("failed to do automatic address planning - %w", err)
 		}
@@ -197,6 +218,25 @@ func mainWithError() error {
 	ourAddr, err := cfg.ourAddr()
 	if err != nil {
 		return fmt.Errorf("failed to get our internal address from config - %w", err)
+	}
+
+	ourAddrStr := ourAddr.Addr().String()
+	for _, forward := range forwards {
+		_ = replaceWgAddrShortcuts(replaceWgAddrShortcutsArgs{
+			addr:               &forward.lAddr.addr,
+			ourIntAddr:         ourAddrStr,
+			isAutoAddrPlanning: *autoAddrPlanning,
+			wgConfig:           cfg,
+			optAutoPeers:       optAutoPeers,
+		})
+
+		_ = replaceWgAddrShortcuts(replaceWgAddrShortcutsArgs{
+			addr:               &forward.rAddr.addr,
+			ourIntAddr:         ourAddrStr,
+			isAutoAddrPlanning: *autoAddrPlanning,
+			wgConfig:           cfg,
+			optAutoPeers:       optAutoPeers,
+		})
 	}
 
 	// TODO: Add flag.
@@ -714,7 +754,9 @@ func (o *basicWGConfig) ourMtuOr(defMtu int) (int, error) {
 	return mtu, nil
 }
 
-func (o *basicWGConfig) iterate(sectionName string, fn func(*wgSection) error) error {
+var errStopIterating = errors.New("stop iterating over sections")
+
+func (o *basicWGConfig) iterateSections(sectionName string, fn func(*wgSection) error) error {
 	var foundOneSection bool
 
 	for _, section := range o.sections {
@@ -723,6 +765,10 @@ func (o *basicWGConfig) iterate(sectionName string, fn func(*wgSection) error) e
 
 			err := fn(section)
 			if err != nil {
+				if errors.Is(err, errStopIterating) {
+					return nil
+				}
+
 				return err
 			}
 		}
@@ -837,6 +883,29 @@ func (o *wgSection) ipcString(b *bytes.Buffer) error {
 	return nil
 }
 
+func (o *wgSection) iterateParams(paramName string, fn func(*wgParam) error) error {
+	var foundOne bool
+
+	for _, param := range o.params {
+		if param.name == paramName {
+			err := fn(&param)
+			if err != nil {
+				if errors.Is(err, errStopIterating) {
+					return nil
+				}
+
+				return err
+			}
+		}
+	}
+
+	if !foundOne {
+		return fmt.Errorf("failed to find param: %q", paramName)
+	}
+
+	return nil
+}
+
 func (o *wgSection) firstParamValue(paramName string) (string, error) {
 	for _, param := range o.params {
 		if param.name == paramName {
@@ -917,28 +986,28 @@ func parseConfigParamLine(line []byte) (string, string, error) {
 	return string(param), string(value), nil
 }
 
-func doAutoAddrPlanning(cfg *basicWGConfig, strsToConfigs map[string]*forwardConfig) error {
+func doAutoAddrPlanning(cfg *basicWGConfig, strsToConfigs map[string]*forwardConfig) ([]autoPeer, error) {
 	ourPub, err := cfg.ourPublicKey()
 	if err != nil {
-		return fmt.Errorf("failed to get our public key from config - %w", err)
+		return nil, fmt.Errorf("failed to get our public key from config - %w", err)
 	}
 
 	ourIntAddr, ok := netip.AddrFromSlice(ourPub[len(ourPub)-16:])
 	if !ok {
-		return fmt.Errorf("failed to convert our public key to v6 addr: %x", ourPub)
+		return nil, fmt.Errorf("failed to convert our public key to v6 addr: %x", ourPub)
 	}
 
-	err = cfg.iterate("Interface", func(s *wgSection) error {
+	err = cfg.iterateSections("Interface", func(s *wgSection) error {
 		return s.addOrSetFirstParam("Address", ourIntAddr.String()+"/64")
 	})
 	if err != nil {
-		return fmt.Errorf("failed to set our internal ip to %q - %w",
+		return nil, fmt.Errorf("failed to set our internal ip to %q - %w",
 			ourIntAddr.String(), err)
 	}
 
-	var peerAddrs []netip.Addr
+	var peers []autoPeer
 
-	err = cfg.iterate("Peer", func(s *wgSection) error {
+	err = cfg.iterateSections("Peer", func(s *wgSection) error {
 		pkB64, err := s.firstParamValue("PublicKey")
 		if err != nil {
 			return err
@@ -960,59 +1029,109 @@ func doAutoAddrPlanning(cfg *basicWGConfig, strsToConfigs map[string]*forwardCon
 				pkB64, err)
 		}
 
-		peerAddrs = append(peerAddrs, addr)
+		peers = append(peers, autoPeer{
+			publicKey: pub,
+			addr:      addr,
+		})
 
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("failed to automatically set peer address - %w", err)
+		return nil, fmt.Errorf("failed to automatically set peer addresses - %w", err)
 	}
 
-	for str, fwd := range strsToConfigs {
-		if fwd.lAddr.addr == "us" {
-			fwd.lAddr.addr = ourIntAddr.String()
+	return peers, nil
+}
+
+type autoPeer struct {
+	publicKey []byte
+	addr      netip.Addr
+}
+
+type replaceWgAddrShortcutsArgs struct {
+	addr               *string
+	ourIntAddr         string
+	isAutoAddrPlanning bool
+	wgConfig           *basicWGConfig
+	optAutoPeers       []autoPeer
+}
+
+func replaceWgAddrShortcuts(args replaceWgAddrShortcutsArgs) error {
+	if *args.addr == "us" {
+		*args.addr = args.ourIntAddr
+		return nil
+	}
+
+	if !args.isAutoAddrPlanning {
+		return nil
+	}
+
+	nPeers := len(args.optAutoPeers)
+
+	if n, ok := isPeerNStr(*args.addr); ok {
+		if n < nPeers {
+			*args.addr = args.optAutoPeers[n].addr.String()
+			return nil
 		}
+	}
 
-		if fwd.rAddr.addr == "us" {
-			fwd.rAddr.addr = ourIntAddr.String()
-		}
-
-		if fwd.lAddr.addr == "all_peers" {
-			delete(strsToConfigs, str)
-
-			for _, peer := range peerAddrs {
-				addrPort := netip.AddrPortFrom(peer, fwd.lAddr.port)
-
-				str := strings.Replace(
-					str,
-					fmt.Sprintf("%s:%d", fwd.lAddr.addr, fwd.lAddr.port),
-					addrPort.String(),
-					1)
-
-				fwd.lAddr.addr = peer.String()
-
-				strsToConfigs[str] = fwd
-			}
-		}
-
-		if fwd.rAddr.addr == "all_peers" {
-			delete(strsToConfigs, str)
-
-			for _, peer := range peerAddrs {
-				addrPort := netip.AddrPortFrom(peer, fwd.rAddr.port)
-
-				str := strings.Replace(
-					str,
-					fmt.Sprintf("%s:%d", fwd.rAddr.addr, fwd.rAddr.port),
-					addrPort.String(),
-					1)
-
-				fwd.rAddr.addr = peer.String()
-
-				strsToConfigs[str] = fwd
+	if publicKey, ok := isWgPublicKeyStr(*args.addr, args.wgConfig); ok {
+		for _, peer := range args.optAutoPeers {
+			if bytes.Equal(publicKey, peer.publicKey) {
+				*args.addr = peer.addr.String()
+				return nil
 			}
 		}
 	}
 
 	return nil
+}
+
+func isPeerNStr(str string) (int, bool) {
+	withoutPeer := strings.TrimPrefix(str, "peer")
+	if withoutPeer == str {
+		return 0, false
+	}
+
+	n, err := strconv.Atoi(withoutPeer)
+	if err != nil {
+		return 0, false
+	}
+
+	return n, true
+}
+
+func isWgPublicKeyStr(str string, cfg *basicWGConfig) ([]byte, bool) {
+	if len(str) < device.NoisePublicKeySize {
+		return nil, false
+	}
+
+	pub, err := base64.StdEncoding.DecodeString(str)
+	if err != nil {
+		return nil, false
+	}
+
+	if len(pub) != device.NoisePublicKeySize {
+		return nil, false
+	}
+
+	err = cfg.iterateSections("Peer", func(section *wgSection) error {
+		err := section.iterateParams("PublicKey", func(param *wgParam) error {
+			if param.value == str {
+				return errStopIterating
+			}
+
+			return errors.New("nope")
+		})
+		if err != nil {
+			return err
+		}
+
+		return errStopIterating
+	})
+	if err != nil {
+		return nil, false
+	}
+
+	return pub, true
 }
