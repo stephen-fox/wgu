@@ -1,4 +1,4 @@
-package wgu
+package wgkeys
 
 import (
 	"crypto/rand"

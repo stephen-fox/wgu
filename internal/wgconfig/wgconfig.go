@@ -4,14 +4,14 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/netip"
 	"strconv"
 
-	"errors"
 	"github.com/jgiannuzzi/wgfwd/internal/ini"
-	"github.com/jgiannuzzi/wgfwd/internal/wgu"
+	"github.com/jgiannuzzi/wgfwd/internal/wgkeys"
 )
 
 func Parse(r io.Reader) (*Config, error) {
@@ -55,12 +55,12 @@ func (o *Config) OurPublicKey() ([]byte, error) {
 		return nil, err
 	}
 
-	privateKey, err := wgu.NoisePrivateKeyFromBase64(privateKeyB64)
+	privateKey, err := wgkeys.NoisePrivateKeyFromBase64(privateKeyB64)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse wireguard private key - %w", err)
 	}
 
-	pub := wgu.NoisePublicKeyFromPrivate(privateKey)
+	pub := wgkeys.NoisePublicKeyFromPrivate(privateKey)
 
 	return pub[:], nil
 }

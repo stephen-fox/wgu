@@ -22,7 +22,7 @@ import (
 	"github.com/jgiannuzzi/wgfwd/internal/netstack"
 	"github.com/jgiannuzzi/wgfwd/internal/ossignals"
 	"github.com/jgiannuzzi/wgfwd/internal/wgconfig"
-	"github.com/jgiannuzzi/wgfwd/internal/wgu"
+	"github.com/jgiannuzzi/wgfwd/internal/wgkeys"
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 )
@@ -128,7 +128,7 @@ func mainWithError() error {
 
 	switch flag.Arg(0) {
 	case "genkey":
-		privateKey, err := wgu.NewNoisePrivateKey()
+		privateKey, err := wgkeys.NewNoisePrivateKey()
 		if err != nil {
 			return fmt.Errorf("failed to generate private key - %w", err)
 		}
@@ -142,12 +142,12 @@ func mainWithError() error {
 			return err
 		}
 
-		privateKey, err := wgu.NoisePrivateKeyFromBase64(string(privateKeyB64))
+		privateKey, err := wgkeys.NoisePrivateKeyFromBase64(string(privateKeyB64))
 		if err != nil {
 			return fmt.Errorf("failed to parse private key - %w", err)
 		}
 
-		pub := wgu.NoisePublicKeyFromPrivate(privateKey)
+		pub := wgkeys.NoisePublicKeyFromPrivate(privateKey)
 
 		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(pub[:]) + "\n")
 
