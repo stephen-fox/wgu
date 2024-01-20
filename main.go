@@ -18,12 +18,12 @@ import (
 	"time"
 
 	"gitlab.com/stephen-fox/wgu/internal/ini"
-	"gitlab.com/stephen-fox/wgu/internal/netstack"
 	"gitlab.com/stephen-fox/wgu/internal/ossignals"
 	"gitlab.com/stephen-fox/wgu/internal/wgconfig"
 	"gitlab.com/stephen-fox/wgu/internal/wgkeys"
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 )
 
 const (
