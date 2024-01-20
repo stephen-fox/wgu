@@ -1,11 +1,9 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -20,8 +18,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jgiannuzzi/wgfwd/internal/ini"
 	"github.com/jgiannuzzi/wgfwd/internal/netstack"
 	"github.com/jgiannuzzi/wgfwd/internal/ossignals"
+	"github.com/jgiannuzzi/wgfwd/internal/wgconfig"
 	"github.com/jgiannuzzi/wgfwd/internal/wgu"
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
@@ -153,12 +153,12 @@ func mainWithError() error {
 
 		return nil
 	case "pubkey-from-config":
-		cfg, err := parseWgConfig(os.Stdin)
+		cfg, err := wgconfig.Parse(os.Stdin)
 		if err != nil {
 			return err
 		}
 
-		pubKey, err := cfg.ourPublicKey()
+		pubKey, err := cfg.OurPublicKey()
 		if err != nil {
 			return err
 		}
@@ -191,7 +191,7 @@ func mainWithError() error {
 	}
 
 	// TODO: Support reading wg private key from a file.
-	cfg, err := parseWgConfig(wgConf)
+	cfg, err := wgconfig.Parse(wgConf)
 	_ = wgConf.Close()
 	if err != nil {
 		return fmt.Errorf("failed to parse wireguard config file - %w", err)
@@ -211,11 +211,16 @@ func mainWithError() error {
 	}
 
 	if *writeWgIpcConfig {
-		_, err = os.Stdout.WriteString(cfg.IPCConfig())
+		str, err := cfg.IPCConfig()
+		if err != nil {
+			return fmt.Errorf("failed to convert config to ipc format - %w", err)
+		}
+
+		_, err = os.Stdout.WriteString(str)
 		return err
 	}
 
-	ourAddr, err := cfg.ourAddr()
+	ourAddr, err := cfg.OurAddr()
 	if err != nil {
 		return fmt.Errorf("failed to get our internal address from config - %w", err)
 	}
@@ -240,9 +245,14 @@ func mainWithError() error {
 	}
 
 	// TODO: Add flag.
-	ourMtu, err := cfg.ourMtuOr(1420)
+	ourMtu, err := cfg.OurMtuOr(1420)
 	if err != nil {
 		return fmt.Errorf("failed to read mtu from config - %w", err)
+	}
+
+	ipcConfig, err := cfg.IPCConfig()
+	if err != nil {
+		return fmt.Errorf("failed to convert config to ipc format - %w", err)
 	}
 
 	tun, tnet, err := netstack.CreateNetTUN(
@@ -259,7 +269,7 @@ func mainWithError() error {
 		Errorf:   loggerErr.Printf,
 	})
 
-	err = dev.IpcSet(cfg.IPCConfig())
+	err = dev.IpcSet(ipcConfig)
 	if err != nil {
 		return fmt.Errorf("Error setting device configuration: %s", err)
 	}
@@ -629,365 +639,8 @@ func (o *forwardFlag) String() string {
 	return "" // TODO
 }
 
-func parseWgConfig(r io.Reader) (*basicWGConfig, error) {
-	scanner := bufio.NewScanner(r)
-
-	line := 0
-
-	var sections []*wgSection
-
-	for scanner.Scan() {
-		line++
-
-		withoutSpaces := bytes.TrimSpace(scanner.Bytes())
-
-		if len(withoutSpaces) == 0 || withoutSpaces[0] == '#' {
-			continue
-		}
-
-		if withoutSpaces[0] == '[' {
-			name, err := parseConfigSectionLine(withoutSpaces)
-			if err != nil {
-				return nil, fmt.Errorf("line %d - failed to parse section header - %w", line, err)
-			}
-
-			sections = append(sections, &wgSection{name: name})
-
-			continue
-		}
-
-		if len(sections) == 0 {
-			return nil, fmt.Errorf("line %d - parameter appears outside of a section", line)
-		}
-
-		paramName, paramValue, err := parseConfigParamLine(withoutSpaces)
-		if err != nil {
-			return nil, fmt.Errorf("line %d - failed to parse line - %w", line, err)
-		}
-
-		currentSection := sections[len(sections)-1]
-		currentSection.params = append(*&currentSection.params, wgParam{
-			name:  paramName,
-			value: paramValue,
-		})
-	}
-
-	err := scanner.Err()
-	if err != nil {
-		return nil, err
-	}
-
-	return &basicWGConfig{
-		sections: sections,
-	}, nil
-}
-
-type basicWGConfig struct {
-	sections []*wgSection
-}
-
-func (o *basicWGConfig) String() string {
-	buf := bytes.NewBuffer(nil)
-
-	for i, section := range o.sections {
-		section.string(buf)
-
-		if len(o.sections) > 1 && i < len(o.sections)-1 {
-			buf.WriteByte('\n')
-		}
-	}
-
-	return buf.String()
-}
-
-func (o *basicWGConfig) IPCConfig() string {
-	buf := bytes.NewBuffer(nil)
-
-	for _, section := range o.sections {
-		section.ipcString(buf)
-	}
-
-	return buf.String()
-}
-
-func (o *basicWGConfig) ourPublicKey() ([]byte, error) {
-	privateKeyB64, err := o.paramInSection("PrivateKey", "Interface")
-	if err != nil {
-		return nil, err
-	}
-
-	privateKey, err := wgu.NoisePrivateKeyFromBase64(privateKeyB64)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse wireguard private key - %w", err)
-	}
-
-	pub := wgu.NoisePublicKeyFromPrivate(privateKey)
-
-	return pub[:], nil
-}
-
-func (o *basicWGConfig) ourAddr() (netip.Prefix, error) {
-	addrStr, err := o.paramInSection("Address", "Interface")
-	if err != nil {
-		return netip.Prefix{}, err
-	}
-
-	ourAddr, err := netip.ParsePrefix(addrStr)
-	if err != nil {
-		return netip.Prefix{}, err
-	}
-
-	return ourAddr, nil
-}
-
-func (o *basicWGConfig) ourMtuOr(defMtu int) (int, error) {
-	mtuStr, optErr := o.paramInSection("MTU", "Interface")
-	if optErr != nil {
-		return defMtu, nil
-	}
-
-	mtu, err := strconv.Atoi(mtuStr)
-	if err != nil {
-		return 0, err
-	}
-
-	return mtu, nil
-}
-
-var errStopIterating = errors.New("stop iterating over sections")
-
-func (o *basicWGConfig) iterateSections(sectionName string, fn func(*wgSection) error) error {
-	var foundOneSection bool
-
-	for _, section := range o.sections {
-		if section.name == sectionName {
-			foundOneSection = true
-
-			err := fn(section)
-			if err != nil {
-				if errors.Is(err, errStopIterating) {
-					return nil
-				}
-
-				return err
-			}
-		}
-	}
-
-	if !foundOneSection {
-		return fmt.Errorf("failed to find section: %q", sectionName)
-	}
-
-	return nil
-}
-
-func (o *basicWGConfig) paramInSection(paramName string, sectionName string) (string, error) {
-	var foundOneSection bool
-
-	for _, section := range o.sections {
-		if section.name == sectionName {
-			foundOneSection = true
-
-			for _, param := range section.params {
-				if param.name == paramName {
-					return param.value, nil
-				}
-			}
-		}
-	}
-
-	if !foundOneSection {
-		return "", fmt.Errorf("failed to find section: %q", sectionName)
-	}
-
-	return "", fmt.Errorf("failed to find %q in section %q", paramName, sectionName)
-}
-
-type wgSection struct {
-	name   string
-	params []wgParam
-}
-
-func (o *wgSection) string(b *bytes.Buffer) {
-	b.WriteString("[" + o.name + "]\n")
-	for _, param := range o.params {
-		b.WriteString(param.name)
-		b.WriteString(" = ")
-		b.WriteString(param.value)
-		b.WriteString("\n")
-	}
-}
-
-func (o *wgSection) ipcString(b *bytes.Buffer) error {
-	for _, param := range o.params {
-		var ipcParamName string
-		var optIpcValue string
-
-		switch o.name {
-		case "Interface":
-			switch param.name {
-			case "PrivateKey":
-				ipcParamName = "private_key"
-
-				raw, err := base64.StdEncoding.DecodeString(param.value)
-				if err != nil {
-					return err
-				}
-
-				optIpcValue = hex.EncodeToString(raw)
-			case "Address":
-				// Not needed for ipc.
-				continue
-			case "MTU":
-				ipcParamName = "mtu"
-			case "ListenPort":
-				ipcParamName = "listen_port"
-			}
-		case "Peer":
-			switch param.name {
-			case "Endpoint":
-				ipcParamName = "endpoint"
-			case "PublicKey":
-				ipcParamName = "public_key"
-
-				raw, err := base64.StdEncoding.DecodeString(param.value)
-				if err != nil {
-					return err
-				}
-
-				optIpcValue = hex.EncodeToString(raw)
-			case "AllowedIPs":
-				ipcParamName = "allowed_ip"
-			case "PersistentKeepalive":
-				ipcParamName = "persistent_keepalive_interval"
-			}
-		default:
-			continue
-		}
-
-		if ipcParamName == "" {
-			return fmt.Errorf("no known ipc param for %q in section %q",
-				param, o.name)
-		}
-
-		b.WriteString(ipcParamName)
-		b.WriteString("=")
-		if optIpcValue == "" {
-			b.WriteString(param.value)
-		} else {
-			b.WriteString(optIpcValue)
-		}
-		b.WriteString("\n")
-	}
-
-	return nil
-}
-
-func (o *wgSection) iterateParams(paramName string, fn func(*wgParam) error) error {
-	var foundOne bool
-
-	for _, param := range o.params {
-		if param.name == paramName {
-			err := fn(&param)
-			if err != nil {
-				if errors.Is(err, errStopIterating) {
-					return nil
-				}
-
-				return err
-			}
-		}
-	}
-
-	if !foundOne {
-		return fmt.Errorf("failed to find param: %q", paramName)
-	}
-
-	return nil
-}
-
-func (o *wgSection) firstParamValue(paramName string) (string, error) {
-	for _, param := range o.params {
-		if param.name == paramName {
-			return param.value, nil
-		}
-	}
-
-	return "", fmt.Errorf("failed to find param: %q", paramName)
-}
-
-func (o *wgSection) addOrSetFirstParam(paramName string, value string) error {
-	for i := range o.params {
-		if o.params[i].name == paramName {
-			o.params[i].value = value
-			return nil
-		}
-	}
-
-	o.params = append(o.params, wgParam{
-		name:  paramName,
-		value: value,
-	})
-
-	return nil
-}
-
-type wgParam struct {
-	name  string
-	value string
-}
-
-func parseConfigSectionLine(line []byte) (string, error) {
-	if len(line) < 2 {
-		return "", errors.New("invalid section header length")
-	}
-
-	if line[0] != '[' {
-		return "", errors.New("section header does not start with '['")
-	}
-
-	if line[len(line)-1] != ']' {
-		return "", errors.New("section header does not end with ']'")
-	}
-
-	line = bytes.TrimSpace(line[1 : len(line)-1])
-
-	if len(line) == 0 {
-		return "", errors.New("section name is empty")
-	}
-
-	return string(line), nil
-}
-
-func parseConfigParamLine(line []byte) (string, string, error) {
-	if !bytes.Contains(line, []byte{'='}) {
-		return "", "", errors.New("line is missing '='")
-	}
-
-	parts := bytes.SplitN(line, []byte("="), 2)
-
-	switch len(parts) {
-	case 0:
-		return "", "", errors.New("line is empty")
-	case 1:
-		return "", "", errors.New("line is missing value")
-	}
-
-	param := bytes.TrimSpace(parts[0])
-	value := bytes.TrimSpace(parts[1])
-
-	switch {
-	case len(param) == 0:
-		return "", "", errors.New("parameter name is empty")
-	case len(value) == 0:
-		return "", "", errors.New("parameter value is empty")
-	}
-
-	return string(param), string(value), nil
-}
-
-func doAutoAddrPlanning(cfg *basicWGConfig, strsToConfigs map[string]*forwardConfig) ([]autoPeer, error) {
-	ourPub, err := cfg.ourPublicKey()
+func doAutoAddrPlanning(cfg *wgconfig.Config, strsToConfigs map[string]*forwardConfig) ([]autoPeer, error) {
+	ourPub, err := cfg.OurPublicKey()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get our public key from config - %w", err)
 	}
@@ -997,8 +650,8 @@ func doAutoAddrPlanning(cfg *basicWGConfig, strsToConfigs map[string]*forwardCon
 		return nil, fmt.Errorf("failed to convert our public key to v6 addr: %x", ourPub)
 	}
 
-	err = cfg.iterateSections("Interface", func(s *wgSection) error {
-		return s.addOrSetFirstParam("Address", ourIntAddr.String()+"/64")
+	err = cfg.INI.IterateSections("Interface", func(s *ini.Section) error {
+		return s.AddOrSetFirstParam("Address", ourIntAddr.String()+"/128")
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to set our internal ip to %q - %w",
@@ -1007,8 +660,8 @@ func doAutoAddrPlanning(cfg *basicWGConfig, strsToConfigs map[string]*forwardCon
 
 	var peers []autoPeer
 
-	err = cfg.iterateSections("Peer", func(s *wgSection) error {
-		pkB64, err := s.firstParamValue("PublicKey")
+	err = cfg.INI.IterateSections("Peer", func(s *ini.Section) error {
+		pkB64, err := s.FirstParamValue("PublicKey")
 		if err != nil {
 			return err
 		}
@@ -1023,7 +676,7 @@ func doAutoAddrPlanning(cfg *basicWGConfig, strsToConfigs map[string]*forwardCon
 			return fmt.Errorf("failed to convert peer public key to v6 addr: %q", pkB64)
 		}
 
-		err = s.addOrSetFirstParam("AllowedIPs", addr.String()+"/64")
+		err = s.AddOrSetFirstParam("AllowedIPs", addr.String()+"/128")
 		if err != nil {
 			return fmt.Errorf("failed to add or set AllowedIPs for peer %q - %w",
 				pkB64, err)
@@ -1052,7 +705,7 @@ type replaceWgAddrShortcutsArgs struct {
 	addr               *string
 	ourIntAddr         string
 	isAutoAddrPlanning bool
-	wgConfig           *basicWGConfig
+	wgConfig           *wgconfig.Config
 	optAutoPeers       []autoPeer
 }
 
@@ -1101,7 +754,7 @@ func isPeerNStr(str string) (int, bool) {
 	return n, true
 }
 
-func isWgPublicKeyStr(str string, cfg *basicWGConfig) ([]byte, bool) {
+func isWgPublicKeyStr(str string, cfg *wgconfig.Config) ([]byte, bool) {
 	if len(str) < device.NoisePublicKeySize {
 		return nil, false
 	}
@@ -1115,23 +768,9 @@ func isWgPublicKeyStr(str string, cfg *basicWGConfig) ([]byte, bool) {
 		return nil, false
 	}
 
-	err = cfg.iterateSections("Peer", func(section *wgSection) error {
-		err := section.iterateParams("PublicKey", func(param *wgParam) error {
-			if param.value == str {
-				return errStopIterating
-			}
-
-			return errors.New("nope")
-		})
-		if err != nil {
-			return err
-		}
-
-		return errStopIterating
-	})
-	if err != nil {
-		return nil, false
+	if _, hasIt := cfg.PeerWithPublicKeyBase64(str); hasIt {
+		return pub, true
 	}
 
-	return pub, true
+	return nil, false
 }
