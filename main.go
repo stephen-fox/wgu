@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -226,22 +225,28 @@ func mainWithError() error {
 	}
 
 	ourAddrStr := ourAddr.Addr().String()
-	for _, forward := range forwards {
-		_ = replaceWgAddrShortcuts(replaceWgAddrShortcutsArgs{
+	for str, forward := range forwards {
+		err = replaceWgAddrShortcuts(replaceWgAddrShortcutsArgs{
 			addr:               &forward.lAddr.addr,
 			ourIntAddr:         ourAddrStr,
 			isAutoAddrPlanning: *autoAddrPlanning,
-			wgConfig:           cfg,
 			optAutoPeers:       optAutoPeers,
 		})
+		if err != nil {
+			return fmt.Errorf("failed to replace listen addr for %q - %w",
+				str, err)
+		}
 
-		_ = replaceWgAddrShortcuts(replaceWgAddrShortcutsArgs{
+		err = replaceWgAddrShortcuts(replaceWgAddrShortcutsArgs{
 			addr:               &forward.rAddr.addr,
 			ourIntAddr:         ourAddrStr,
 			isAutoAddrPlanning: *autoAddrPlanning,
-			wgConfig:           cfg,
 			optAutoPeers:       optAutoPeers,
 		})
+		if err != nil {
+			return fmt.Errorf("failed to replace dial addr for %q - %w",
+				str, err)
+		}
 	}
 
 	// TODO: Add flag.
@@ -645,9 +650,10 @@ func doAutoAddrPlanning(cfg *wgconfig.Config, strsToConfigs map[string]*forwardC
 		return nil, fmt.Errorf("failed to get our public key from config - %w", err)
 	}
 
-	ourIntAddr, ok := netip.AddrFromSlice(ourPub[len(ourPub)-16:])
-	if !ok {
-		return nil, fmt.Errorf("failed to convert our public key to v6 addr: %x", ourPub)
+	ourIntAddr, err := publicKeyToV6Addr(ourPub)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert our public key to v6 addr: %x - %w",
+			ourPub, err)
 	}
 
 	err = cfg.INI.IterateSections("Interface", func(s *ini.Section) error {
@@ -671,9 +677,10 @@ func doAutoAddrPlanning(cfg *wgconfig.Config, strsToConfigs map[string]*forwardC
 			return err
 		}
 
-		addr, ok := netip.AddrFromSlice(pub[len(pub)-16:])
-		if !ok {
-			return fmt.Errorf("failed to convert peer public key to v6 addr: %q", pkB64)
+		addr, err := publicKeyToV6Addr(pub)
+		if err != nil {
+			return fmt.Errorf("failed to convert peer public key to v6 addr: %q - %w",
+				pkB64, err)
 		}
 
 		err = s.AddOrSetFirstParam("AllowedIPs", addr.String()+"/128")
@@ -705,7 +712,6 @@ type replaceWgAddrShortcutsArgs struct {
 	addr               *string
 	ourIntAddr         string
 	isAutoAddrPlanning bool
-	wgConfig           *wgconfig.Config
 	optAutoPeers       []autoPeer
 }
 
@@ -728,13 +734,14 @@ func replaceWgAddrShortcuts(args replaceWgAddrShortcutsArgs) error {
 		}
 	}
 
-	if publicKey, ok := isWgPublicKeyStr(*args.addr, args.wgConfig); ok {
-		for _, peer := range args.optAutoPeers {
-			if bytes.Equal(publicKey, peer.publicKey) {
-				*args.addr = peer.addr.String()
-				return nil
-			}
+	if publicKey, ok := isWgPublicKeyStr(*args.addr); ok {
+		addr, err := publicKeyToV6Addr(publicKey)
+		if err != nil {
+			return fmt.Errorf("failed to convert peer public key to v6 addr: %q - %w",
+				*args.addr, err)
 		}
+
+		*args.addr = addr.String()
 	}
 
 	return nil
@@ -754,7 +761,7 @@ func isPeerNStr(str string) (int, bool) {
 	return n, true
 }
 
-func isWgPublicKeyStr(str string, cfg *wgconfig.Config) ([]byte, bool) {
+func isWgPublicKeyStr(str string) ([]byte, bool) {
 	if len(str) < device.NoisePublicKeySize {
 		return nil, false
 	}
@@ -768,9 +775,14 @@ func isWgPublicKeyStr(str string, cfg *wgconfig.Config) ([]byte, bool) {
 		return nil, false
 	}
 
-	if _, hasIt := cfg.PeerWithPublicKeyBase64(str); hasIt {
-		return pub, true
+	return pub, true
+}
+
+func publicKeyToV6Addr(pub []byte) (netip.Addr, error) {
+	addr, ok := netip.AddrFromSlice(pub[len(pub)-16:])
+	if !ok {
+		return netip.Addr{}, errors.New("netip.AddrFromSlice returned false")
 	}
 
-	return nil, false
+	return addr, nil
 }
