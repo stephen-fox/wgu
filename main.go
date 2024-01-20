@@ -219,16 +219,16 @@ func mainWithError() error {
 		return err
 	}
 
-	ourAddr, err := cfg.OurAddr()
+	ourWgAddr, err := cfg.OurAddr()
 	if err != nil {
-		return fmt.Errorf("failed to get our internal address from config - %w", err)
+		return fmt.Errorf("failed to get our internal wg address from config - %w", err)
 	}
 
-	ourAddrStr := ourAddr.Addr().String()
+	ourWgAddrStr := ourWgAddr.Addr().String()
 	for str, forward := range forwards {
 		err = replaceWgAddrShortcuts(replaceWgAddrShortcutsArgs{
 			addr:               &forward.lAddr.addr,
-			ourIntAddr:         ourAddrStr,
+			ourWgAddr:          ourWgAddrStr,
 			isAutoAddrPlanning: *autoAddrPlanning,
 			optAutoPeers:       optAutoPeers,
 		})
@@ -239,7 +239,7 @@ func mainWithError() error {
 
 		err = replaceWgAddrShortcuts(replaceWgAddrShortcutsArgs{
 			addr:               &forward.rAddr.addr,
-			ourIntAddr:         ourAddrStr,
+			ourWgAddr:          ourWgAddrStr,
 			isAutoAddrPlanning: *autoAddrPlanning,
 			optAutoPeers:       optAutoPeers,
 		})
@@ -261,7 +261,7 @@ func mainWithError() error {
 	}
 
 	tun, tnet, err := netstack.CreateNetTUN(
-		[]netip.Addr{ourAddr.Addr()},
+		[]netip.Addr{ourWgAddr.Addr()},
 		[]netip.Addr{},
 		ourMtu,
 	)
@@ -311,7 +311,7 @@ func mainWithError() error {
 
 		lNet := netOpForAddr(netOpForAddrArgs{
 			addr:         lAddr,
-			ourWgAddr:    ourAddr.Addr(),
+			ourWgAddr:    ourWgAddr.Addr(),
 			localNetOp:   localNetOp,
 			tunnelNetOp:  tunnelNetOp,
 			optAutoPeers: optAutoPeers,
@@ -319,7 +319,7 @@ func mainWithError() error {
 
 		rNet := netOpForAddr(netOpForAddrArgs{
 			addr:         rAddr,
-			ourWgAddr:    ourAddr.Addr(),
+			ourWgAddr:    ourWgAddr.Addr(),
 			localNetOp:   localNetOp,
 			tunnelNetOp:  tunnelNetOp,
 			optAutoPeers: optAutoPeers,
@@ -715,14 +715,14 @@ type autoPeer struct {
 
 type replaceWgAddrShortcutsArgs struct {
 	addr               *string
-	ourIntAddr         string
+	ourWgAddr          string
 	isAutoAddrPlanning bool
 	optAutoPeers       []autoPeer
 }
 
 func replaceWgAddrShortcuts(args replaceWgAddrShortcutsArgs) error {
 	if *args.addr == "us" {
-		*args.addr = args.ourIntAddr
+		*args.addr = args.ourWgAddr
 		return nil
 	}
 
