@@ -17,11 +17,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jgiannuzzi/wgfwd/internal/ini"
-	"github.com/jgiannuzzi/wgfwd/internal/netstack"
-	"github.com/jgiannuzzi/wgfwd/internal/ossignals"
-	"github.com/jgiannuzzi/wgfwd/internal/wgconfig"
-	"github.com/jgiannuzzi/wgfwd/internal/wgkeys"
+	"gitlab.com/stephen-fox/wgu/internal/ini"
+	"gitlab.com/stephen-fox/wgu/internal/netstack"
+	"gitlab.com/stephen-fox/wgu/internal/ossignals"
+	"gitlab.com/stephen-fox/wgu/internal/wgconfig"
+	"gitlab.com/stephen-fox/wgu/internal/wgkeys"
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 )

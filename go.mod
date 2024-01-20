@@ -1,4 +1,4 @@
-module github.com/jgiannuzzi/wgfwd
+module gitlab.com/stephen-fox/wgu
 
 go 1.20
 

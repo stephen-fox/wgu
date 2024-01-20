@@ -10,8 +10,8 @@ import (
 	"net/netip"
 	"strconv"
 
-	"github.com/jgiannuzzi/wgfwd/internal/ini"
-	"github.com/jgiannuzzi/wgfwd/internal/wgkeys"
+	"gitlab.com/stephen-fox/wgu/internal/ini"
+	"gitlab.com/stephen-fox/wgu/internal/wgkeys"
 )
 
 func Parse(r io.Reader) (*Config, error) {
