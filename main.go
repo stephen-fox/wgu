@@ -309,16 +309,21 @@ func mainWithError() error {
 				fwdStr, err)
 		}
 
-		var lNet netOp
-		var rNet netOp
+		lNet := netOpForAddr(netOpForAddrArgs{
+			addr:         lAddr,
+			ourWgAddr:    ourAddr.Addr(),
+			localNetOp:   localNetOp,
+			tunnelNetOp:  tunnelNetOp,
+			optAutoPeers: optAutoPeers,
+		})
 
-		if fwd.lAddr.addr == ourAddr.Addr().String() {
-			lNet = tunnelNetOp
-			rNet = localNetOp
-		} else {
-			lNet = localNetOp
-			rNet = tunnelNetOp
-		}
+		rNet := netOpForAddr(netOpForAddrArgs{
+			addr:         rAddr,
+			ourWgAddr:    ourAddr.Addr(),
+			localNetOp:   localNetOp,
+			tunnelNetOp:  tunnelNetOp,
+			optAutoPeers: optAutoPeers,
+		})
 
 		err = forward(ctx, &wg, fwd.proto, lNet, lAddr.String(), rNet, rAddr.String())
 		if err != nil {
@@ -785,4 +790,30 @@ func publicKeyToV6Addr(pub []byte) (netip.Addr, error) {
 	}
 
 	return addr, nil
+}
+
+type netOpForAddrArgs struct {
+	addr         netip.AddrPort
+	ourWgAddr    netip.Addr
+	localNetOp   netOp
+	tunnelNetOp  netOp
+	optAutoPeers []autoPeer
+}
+
+func netOpForAddr(args netOpForAddrArgs) netOp {
+	if args.addr.Addr() == args.ourWgAddr {
+		return args.tunnelNetOp
+	}
+
+	if len(args.optAutoPeers) == 0 {
+		return args.localNetOp
+	}
+
+	for _, peer := range args.optAutoPeers {
+		if peer.addr == args.addr.Addr() {
+			return args.tunnelNetOp
+		}
+	}
+
+	return args.localNetOp
 }
