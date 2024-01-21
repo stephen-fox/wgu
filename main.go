@@ -416,49 +416,53 @@ func forwardTCP(ctx context.Context, wg *sync.WaitGroup, lNet netOp, lAddr strin
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
-				loggerErr.Printf("error accepting tcp connection: %s", err)
+				loggerErr.Printf("Error accepting tcp connection: %s", err)
 				return
 			}
-			loggerDebug.Printf("accepted tcp connection from %s for %s", conn.RemoteAddr(), lAddr)
+			loggerDebug.Printf("Accepted TCP connection from %s for %s", conn.RemoteAddr(), lAddr)
 
-			remote, err := rNet.Dial(ctx, "tcp", rAddr)
-			if err != nil {
-				loggerErr.Printf("error connecting to remote TCP: %s", err)
-				conn.Close()
-				continue
-			}
-			loggerDebug.Printf("tcp connection forwarded from %s to %s", conn.RemoteAddr(), rAddr)
-
-			var iwg sync.WaitGroup
-			go func() {
-				defer iwg.Done()
-				defer remote.Close()
-				defer conn.Close()
-				_, err := io.Copy(remote, conn)
-				if err != nil && err != io.EOF {
-					loggerDebug.Printf("error copying from %s: %s", conn.RemoteAddr(), err)
-				}
-			}()
-			go func() {
-				defer iwg.Done()
-				defer remote.Close()
-				defer conn.Close()
-				_, err := io.Copy(conn, remote)
-				if err != nil {
-					loggerDebug.Printf("error copying to %s: %s", conn.RemoteAddr(), err)
-				}
-			}()
-			iwg.Add(2)
-			go func() {
-				iwg.Wait()
-				loggerDebug.Printf("connection from %s closed", conn.RemoteAddr())
-			}()
+			go dialAndCopyTCP(ctx, conn, rNet, rAddr)
 		}
 	}()
 
-	loggerInfo.Printf("tcp forwarder started for %s -> %s", lAddr, rAddr)
+	loggerInfo.Printf("TCP forwarder started for %s -> %s", lAddr, rAddr)
 
 	return nil
+}
+
+func dialAndCopyTCP(ctx context.Context, conn net.Conn, rNet netOp, rAddr string) {
+	remote, err := rNet.Dial(ctx, "tcp", rAddr)
+	if err != nil {
+		loggerErr.Printf("Error connecting to remote TCP: %s", err)
+		conn.Close()
+		return
+	}
+	loggerDebug.Printf("TCP connection forwarded from %s to %s", conn.RemoteAddr(), rAddr)
+
+	iwg := &sync.WaitGroup{}
+	iwg.Add(2)
+
+	go func() {
+		defer iwg.Done()
+		defer remote.Close()
+		defer conn.Close()
+		_, err := io.Copy(remote, conn)
+		if err != nil && err != io.EOF {
+			loggerDebug.Printf("Error copying from %s: %s", conn.RemoteAddr(), err)
+		}
+	}()
+	go func() {
+		defer iwg.Done()
+		defer remote.Close()
+		defer conn.Close()
+		_, err := io.Copy(conn, remote)
+		if err != nil {
+			loggerDebug.Printf("Error copying to %s: %s", conn.RemoteAddr(), err)
+		}
+	}()
+
+	iwg.Wait()
+	loggerDebug.Printf("Connection from %s closed", conn.RemoteAddr())
 }
 
 func forwardUDP(ctx context.Context, wg *sync.WaitGroup, lNet netOp, lAddr string, rNet netOp, rAddr string) error {
