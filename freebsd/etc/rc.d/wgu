@@ -1,0 +1,17 @@
+#!/bin/sh
+
+# PROVIDE: wgu
+
+. /etc/rc.subr
+
+name="wgu"
+
+procname="/usr/local/bin/${name}"
+desc="${name}"
+rcvar="${name}_enable"
+pidfile="/var/run/${name}.pid"
+command="/usr/sbin/daemon"
+command_args="-u _${name} -T ${name} -p ${pidfile} -- ${procname} -auto -wg-config /etc/wgu/wg.conf -udp 'us:34197->127.0.0.1:34197' -udp 'us:44265->127.0.0.1:44265'"
+
+load_rc_config $name
+run_rc_command "$@"
