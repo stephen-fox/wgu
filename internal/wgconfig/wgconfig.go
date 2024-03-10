@@ -8,10 +8,13 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"os"
 	"strconv"
+	"strings"
 
 	"gitlab.com/stephen-fox/wgu/internal/ini"
 	"gitlab.com/stephen-fox/wgu/internal/wgkeys"
+	"golang.zx2c4.com/wireguard/device"
 )
 
 func Parse(r io.Reader) (*Config, error) {
@@ -50,12 +53,12 @@ func (o *Config) IPCConfig() (string, error) {
 }
 
 func (o *Config) OurPublicKey() ([]byte, error) {
-	privateKeyB64, err := o.INI.ParamInSection("PrivateKey", "Interface")
+	privateKeyValue, err := o.INI.ParamInSection("PrivateKey", "Interface")
 	if err != nil {
 		return nil, err
 	}
 
-	privateKey, err := wgkeys.NoisePrivateKeyFromBase64(privateKeyB64)
+	privateKey, err := parsePrivateKey(privateKeyValue)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse wireguard private key - %w", err)
 	}
@@ -128,12 +131,12 @@ func sectionToIpcString(section *ini.Section, b *bytes.Buffer) error {
 			case "PrivateKey":
 				ipcParamName = "private_key"
 
-				raw, err := base64.StdEncoding.DecodeString(param.Value)
+				privateKey, err := parsePrivateKey(param.Value)
 				if err != nil {
 					return err
 				}
 
-				optIpcValue = hex.EncodeToString(raw)
+				optIpcValue = hex.EncodeToString(privateKey[:])
 			case "Address":
 				// Not needed for ipc.
 				continue
@@ -180,4 +183,32 @@ func sectionToIpcString(section *ini.Section, b *bytes.Buffer) error {
 	}
 
 	return nil
+}
+
+func parsePrivateKey(iniParamValue string) (*device.NoisePrivateKey, error) {
+	noPrefix := strings.TrimPrefix(iniParamValue, "file://")
+	if noPrefix != iniParamValue {
+		if strings.HasPrefix(noPrefix, "~") {
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get user's home directory - %w", err)
+			}
+
+			noPrefix = homeDir + noPrefix[1:]
+		}
+
+		contents, err := os.ReadFile(noPrefix)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read file - %w", err)
+		}
+
+		noPrefix = string(bytes.TrimRight(contents, "\n\r"))
+	}
+
+	privateKey, err := wgkeys.NoisePrivateKeyFromBase64(noPrefix)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse ini param value - %w", err)
+	}
+
+	return privateKey, nil
 }

@@ -178,6 +178,8 @@ func mainWithError() error {
 		loggerErr = log.New(log.Writer(), "[error] ", log.Flags()|log.Lmsgprefix)
 	}
 
+	//TODO check if wgConfig is empty
+
 	var wgConf *os.File
 	if *wgConfig == "-" {
 		wgConf = os.Stdin
