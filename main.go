@@ -27,7 +27,8 @@ import (
 )
 
 const (
-	appName = "wgu"
+	appName       = "wgu"
+	configPathArg = "config"
 
 	usage = appName + `
 
@@ -105,7 +106,7 @@ func mainWithError() error {
 	}
 	flag.Var(&udpForwards, "udp", "UDP port forward `specification` (see -h for details)")
 
-	wgConfig := flag.String("wg-config", "", "Wireguard config file")
+	configPath := flag.String(configPathArg, "", "Configuration file `path`")
 
 	logLevelString := flag.String("log-level", "info", "Log level")
 
@@ -113,9 +114,9 @@ func mainWithError() error {
 
 	autoAddrPlanning := flag.Bool("auto", false, "")
 
-	writeWgConfig := flag.Bool("write-wg-config", false, "")
+	writeConfig := flag.Bool("write-config", false, "")
 
-	writeWgIpcConfig := flag.Bool("write-wg-ipc-config", false, "")
+	writeIpcConfig := flag.Bool("write-ipc-config", false, "")
 
 	flag.Parse()
 
@@ -178,24 +179,50 @@ func mainWithError() error {
 		loggerErr = log.New(log.Writer(), "[error] ", log.Flags()|log.Lmsgprefix)
 	}
 
-	//TODO check if wgConfig is empty
-
-	var wgConf *os.File
-	if *wgConfig == "-" {
-		wgConf = os.Stdin
-	} else {
+	var configFD *os.File
+	switch *configPath {
+	case "":
+		return fmt.Errorf("please specify a config path using -%s", configPathArg)
+	case "-":
+		configFD = os.Stdin
+	default:
 		var err error
-		wgConf, err = os.Open(*wgConfig)
+		configFD, err = os.Open(*configPath)
 		if err != nil {
 			return err
 		}
 	}
 
-	// TODO: Support reading wg private key from a file.
-	cfg, err := wgconfig.Parse(wgConf)
-	_ = wgConf.Close()
+	cfg, err := wgconfig.Parse(configFD)
+	_ = configFD.Close()
 	if err != nil {
-		return fmt.Errorf("failed to parse wireguard config file - %w", err)
+		return fmt.Errorf("failed to parse config file - %w", err)
+	}
+
+	for _, section := range cfg.INI.Sections {
+		if section.Name != "Forwards" {
+			continue
+		}
+
+		for _, param := range section.Params {
+			switch param.Name {
+			case "TCP":
+				err := tcpForwards.Set(param.Value)
+				if err != nil {
+					return fmt.Errorf("failed to parse tcp forward from config (%q) - %w",
+						param.Value, err)
+				}
+			case "UDP":
+				err := udpForwards.Set(param.Value)
+				if err != nil {
+					return fmt.Errorf("failed to parse udp forward from config (%q) - %w",
+						param.Value, err)
+				}
+			default:
+				return fmt.Errorf("forward from config specifies unknown transport: %q",
+					param.Name)
+			}
+		}
 	}
 
 	var optAutoPeers []autoPeer
@@ -206,12 +233,12 @@ func mainWithError() error {
 		}
 	}
 
-	if *writeWgConfig {
+	if *writeConfig {
 		_, err = os.Stdout.WriteString(cfg.String())
 		return err
 	}
 
-	if *writeWgIpcConfig {
+	if *writeIpcConfig {
 		str, err := cfg.IPCConfig()
 		if err != nil {
 			return fmt.Errorf("failed to convert config to ipc format - %w", err)
