@@ -1,6 +1,7 @@
 #!/bin/sh
 
 # PROVIDE: wgu
+# REQUIRE: FILESYSTEMS
 
 . /etc/rc.subr
 
