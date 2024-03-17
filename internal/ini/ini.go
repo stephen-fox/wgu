@@ -47,7 +47,7 @@ func Parse(r io.Reader) (*INI, error) {
 		}
 
 		currentSection := sections[len(sections)-1]
-		currentSection.Params = append(*&currentSection.Params, Param{
+		currentSection.Params = append(*&currentSection.Params, &Param{
 			Name:  paramName,
 			Value: paramValue,
 		})
@@ -130,7 +130,7 @@ func (o *INI) ParamInSection(paramName string, sectionName string) (string, erro
 
 type Section struct {
 	Name   string
-	Params []Param
+	Params []*Param
 }
 
 func (o *Section) string(b *bytes.Buffer) {
@@ -150,7 +150,7 @@ func (o *Section) IterateParams(paramName string, fn func(*Param) error) error {
 		if param.Name == paramName {
 			foundOne = true
 
-			err := fn(&param)
+			err := fn(param)
 			if err != nil {
 				if errors.Is(err, ErrStopIterating) {
 					return nil
@@ -186,7 +186,7 @@ func (o *Section) AddOrSetFirstParam(paramName string, value string) error {
 		}
 	}
 
-	o.Params = append(o.Params, Param{
+	o.Params = append(o.Params, &Param{
 		Name:  paramName,
 		Value: value,
 	})
