@@ -148,6 +148,8 @@ func (o *Section) IterateParams(paramName string, fn func(*Param) error) error {
 
 	for _, param := range o.Params {
 		if param.Name == paramName {
+			foundOne = true
+
 			err := fn(&param)
 			if err != nil {
 				if errors.Is(err, ErrStopIterating) {
