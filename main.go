@@ -284,6 +284,15 @@ func mainWithError() error {
 		return fmt.Errorf("failed to read mtu from config - %w", err)
 	}
 
+	// TODO: Use signal library.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err = peerDNSResolution(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to resolve peer endpoint hostnames - %w", err)
+	}
+
 	ipcConfig, err := cfg.IPCConfig()
 	if err != nil {
 		return fmt.Errorf("failed to convert config to ipc format - %w", err)
@@ -318,9 +327,6 @@ func mainWithError() error {
 
 	var wg sync.WaitGroup
 	defer wg.Wait()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	var localNetOp = &localNetOp{}
 	var tunnelNetOp = &tunnelNetOp{tnet}
@@ -823,6 +829,48 @@ func publicKeyToV6Addr(pub []byte) (netip.Addr, error) {
 	}
 
 	return addr, nil
+}
+
+// TODO: Think about putting in separate library.
+func peerDNSResolution(ctx context.Context, cfg *wgconfig.Config) error {
+	netResolver := net.Resolver{}
+
+	return cfg.INI.IterateSections("Peer", func(section *ini.Section) error {
+		err := section.IterateParams("Endpoint", func(param *ini.Param) error {
+			host, portStr, err := net.SplitHostPort(param.Value)
+			if err != nil {
+				return fmt.Errorf("peer %q: failed to split host port - %w",
+					param.Value, err)
+			}
+
+			addrs, err := netResolver.LookupHost(ctx, host)
+			if err != nil {
+				return fmt.Errorf("peer %q: failed to lookup %q - %w",
+					param.Value, host, err)
+			}
+
+			// TODO: Doesn't seem like wireguard supports multiple endpoints.
+			//  For now we will just use the first address.
+			addr, err := netip.ParseAddr(addrs[0])
+			if err != nil {
+				return fmt.Errorf("peer %q: failed to parse resolved address %q - %w",
+					param.Value, addrs[0], err)
+			}
+
+			port, err := strconv.ParseUint(portStr, 10, 16)
+			if err != nil {
+				return fmt.Errorf("peer %q: failed to parse port string to uint16 - %w",
+					param.Value, err)
+			}
+
+			param.Value = netip.AddrPortFrom(addr, uint16(port)).String()
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("failed to resolve endpoint for peer - %w", err)
+		}
+		return nil
+	})
 }
 
 type netOpForAddrArgs struct {
