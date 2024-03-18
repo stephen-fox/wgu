@@ -432,8 +432,6 @@ func forward(ctx context.Context, wg *sync.WaitGroup, proto string, lNet netOp, 
 }
 
 func forwardTCP(ctx context.Context, wg *sync.WaitGroup, lNet netOp, lAddr string, rNet netOp, rAddr string) error {
-	wg.Add(1)
-
 	listener, err := lNet.Listen(ctx, "tcp", lAddr)
 	if err != nil {
 		return err
@@ -445,6 +443,7 @@ func forwardTCP(ctx context.Context, wg *sync.WaitGroup, lNet netOp, lAddr strin
 		listener.Close()
 	}()
 
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
@@ -501,8 +500,6 @@ func dialAndCopyTCP(ctx context.Context, conn net.Conn, rNet netOp, rAddr string
 }
 
 func forwardUDP(ctx context.Context, wg *sync.WaitGroup, lNet netOp, lAddr string, rNet netOp, rAddr string) error {
-	wg.Add(1)
-
 	remoteConns := make(map[string]net.Conn)
 
 	localConn, err := lNet.ListenPacket(ctx, "udp", lAddr)
@@ -519,6 +516,7 @@ func forwardUDP(ctx context.Context, wg *sync.WaitGroup, lNet netOp, lAddr strin
 		localConn.Close()
 	}()
 
+	wg.Add(1)
 	buffer := make([]byte, 1392)
 	go func() {
 		defer wg.Done()
