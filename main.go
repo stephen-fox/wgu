@@ -284,11 +284,12 @@ func mainWithError() error {
 		return fmt.Errorf("failed to read mtu from config - %w", err)
 	}
 
+	// TODO: Declare a context here after fixing deadlock.
 	// TODO: Use signal library.
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	//ctx, cancel := context.WithCancel(context.Background())
+	//defer cancel()
 
-	err = peerDNSResolution(ctx, cfg)
+	err = peerDNSResolution(context.Background(), cfg)
 	if err != nil {
 		return fmt.Errorf("failed to resolve peer endpoint hostnames - %w", err)
 	}
@@ -327,6 +328,12 @@ func mainWithError() error {
 
 	var wg sync.WaitGroup
 	defer wg.Wait()
+
+	// TODO: Move context to earlier in function
+	//  Needed to put here to make sure cancel() happens before wg.Wait()
+	//  Otherwise this causes a deadlock >.<
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	var localNetOp = &localNetOp{}
 	var tunnelNetOp = &tunnelNetOp{tnet}
