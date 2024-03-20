@@ -15,10 +15,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"gitlab.com/stephen-fox/wgu/internal/ini"
-	"gitlab.com/stephen-fox/wgu/internal/ossignals"
 	"gitlab.com/stephen-fox/wgu/internal/wgconfig"
 	"gitlab.com/stephen-fox/wgu/internal/wgkeys"
 	"golang.zx2c4.com/wireguard/conn"
@@ -284,12 +284,11 @@ func mainWithError() error {
 		return fmt.Errorf("failed to read mtu from config - %w", err)
 	}
 
-	// TODO: Declare a context here after fixing deadlock.
-	// TODO: Use signal library.
-	//ctx, cancel := context.WithCancel(context.Background())
-	//defer cancel()
+	ctx, cancelFn := signal.NotifyContext(context.Background(),
+		syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT)
+	defer cancelFn()
 
-	err = peerDNSResolution(context.Background(), cfg)
+	err = peerDNSResolution(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("failed to resolve peer endpoint hostnames - %w", err)
 	}
@@ -327,14 +326,6 @@ func mainWithError() error {
 	loggerInfo.Println("wg device up")
 
 	var wg sync.WaitGroup
-	defer wg.Wait()
-
-	// TODO: Move context to earlier in function
-	//  Needed to put here to make sure cancel() happens before wg.Wait()
-	//  Otherwise this causes a deadlock >.<
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	var localNetOp = &localNetOp{}
 	var tunnelNetOp = &tunnelNetOp{tnet}
 
@@ -373,11 +364,9 @@ func mainWithError() error {
 		}
 	}
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, ossignals.QuitSignals()...)
-	s := <-sigChan
-
-	return fmt.Errorf("received signal: %s", s.String())
+	<-ctx.Done()
+	wg.Wait()
+	return ctx.Err()
 }
 
 type netOp interface {
@@ -507,6 +496,7 @@ func dialAndCopyTCP(ctx context.Context, conn net.Conn, rNet netOp, rAddr string
 }
 
 func forwardUDP(ctx context.Context, wg *sync.WaitGroup, lNet netOp, lAddr string, rNet netOp, rAddr string) error {
+	// TODO: Needs synchronization
 	remoteConns := make(map[string]net.Conn)
 
 	localConn, err := lNet.ListenPacket(ctx, "udp", lAddr)
@@ -524,9 +514,9 @@ func forwardUDP(ctx context.Context, wg *sync.WaitGroup, lNet netOp, lAddr strin
 	}()
 
 	wg.Add(1)
-	buffer := make([]byte, 1392)
 	go func() {
 		defer wg.Done()
+		buffer := make([]byte, 1392)
 
 		for {
 			n, addr, err := localConn.ReadFrom(buffer)
