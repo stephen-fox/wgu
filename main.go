@@ -325,7 +325,7 @@ func mainWithError() error {
 
 	loggerInfo.Println("wg device up")
 
-	var wg sync.WaitGroup
+	var waitGroup sync.WaitGroup
 	var localNetOp = &localNetOp{}
 	var tunnelNetOp = &tunnelNetOp{tnet}
 
@@ -358,14 +358,14 @@ func mainWithError() error {
 			optAutoPeers: optAutoPeers,
 		})
 
-		err = forward(ctx, &wg, fwd.proto, lNet, lAddr.String(), rNet, rAddr.String())
+		err = forward(ctx, &waitGroup, fwd.proto, lNet, lAddr.String(), rNet, rAddr.String())
 		if err != nil {
 			return fmt.Errorf("error forwarding %+v: %s", fwd, err)
 		}
 	}
 
 	<-ctx.Done()
-	wg.Wait()
+	waitGroup.Wait()
 	return ctx.Err()
 }
 
@@ -427,7 +427,7 @@ func forward(ctx context.Context, wg *sync.WaitGroup, proto string, lNet netOp, 
 	}
 }
 
-func forwardTCP(ctx context.Context, wg *sync.WaitGroup, lNet netOp, lAddr string, rNet netOp, rAddr string) error {
+func forwardTCP(ctx context.Context, waitGroup *sync.WaitGroup, lNet netOp, lAddr string, rNet netOp, rAddr string) error {
 	listener, err := lNet.Listen(ctx, "tcp", lAddr)
 	if err != nil {
 		return err
@@ -439,9 +439,9 @@ func forwardTCP(ctx context.Context, wg *sync.WaitGroup, lNet netOp, lAddr strin
 		listener.Close()
 	}()
 
-	wg.Add(1)
+	waitGroup.Add(1)
 	go func() {
-		defer wg.Done()
+		defer waitGroup.Done()
 
 		for {
 			conn, err := listener.Accept()
