@@ -416,12 +416,12 @@ func (n *tunnelNetOp) ListenPacket(ctx context.Context, network string, address 
 	return n.tun.ListenUDP(addr)
 }
 
-func forward(ctx context.Context, wg *sync.WaitGroup, proto string, lNet netOp, lAddr string, rNet netOp, rAddr string) error {
+func forward(ctx context.Context, waitGroup *sync.WaitGroup, proto string, lNet netOp, lAddr string, rNet netOp, rAddr string) error {
 	switch proto {
 	case "tcp":
-		return forwardTCP(ctx, wg, lNet, lAddr, rNet, rAddr)
+		return forwardTCP(ctx, waitGroup, lNet, lAddr, rNet, rAddr)
 	case "udp":
-		return forwardUDP(ctx, wg, lNet, lAddr, rNet, rAddr)
+		return forwardUDP(ctx, waitGroup, lNet, lAddr, rNet, rAddr)
 	default:
 		return fmt.Errorf("unknown protocol: %s", proto)
 	}
@@ -495,7 +495,7 @@ func dialAndCopyTCP(ctx context.Context, conn net.Conn, rNet netOp, rAddr string
 	loggerDebug.Printf("Connection from %s closed", conn.RemoteAddr())
 }
 
-func forwardUDP(ctx context.Context, wg *sync.WaitGroup, lNet netOp, lAddr string, rNet netOp, rAddr string) error {
+func forwardUDP(ctx context.Context, waitGroup *sync.WaitGroup, lNet netOp, lAddr string, rNet netOp, rAddr string) error {
 	// TODO: Needs synchronization
 	remoteConns := make(map[string]net.Conn)
 
@@ -513,9 +513,9 @@ func forwardUDP(ctx context.Context, wg *sync.WaitGroup, lNet netOp, lAddr strin
 		localConn.Close()
 	}()
 
-	wg.Add(1)
+	waitGroup.Add(1)
 	go func() {
-		defer wg.Done()
+		defer waitGroup.Done()
 		buffer := make([]byte, 1392)
 
 		for {
