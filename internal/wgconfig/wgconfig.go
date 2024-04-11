@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/netip"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -121,7 +122,17 @@ func (o *Config) PeerWithPublicKeyBase64(base64PublicKey string) (interface{}, b
 func sectionToIpcString(section *ini.Section, b *bytes.Buffer) error {
 	// For param names, refer to:
 	// https://www.wireguard.com/xplatform/#configuration-protocol
-	for _, param := range section.Params {
+
+	// This sucks, but the library expects the public key param to
+	// appear first for each peer.
+	sortedParams := make([]*ini.Param, len(section.Params))
+	copy(sortedParams, section.Params)
+
+	sort.SliceStable(sortedParams, func(i, j int) bool {
+		return sortedParams[i].Name == "PublicKey"
+	})
+
+	for _, param := range sortedParams {
 		var ipcParamName string
 		var optIpcValue string
 
