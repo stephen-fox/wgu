@@ -861,10 +861,14 @@ func peerDNSResolution(ctx context.Context, cfg *wgconfig.Config) error {
 			param.Value = netip.AddrPortFrom(addr, uint16(port)).String()
 			return nil
 		})
-		if err != nil {
+		switch {
+		case errors.Is(err, ini.ErrNoSuchParam):
+			return nil
+		case err != nil:
 			return fmt.Errorf("failed to resolve endpoint for peer - %w", err)
+		default:
+			return nil
 		}
-		return nil
 	})
 }
 
