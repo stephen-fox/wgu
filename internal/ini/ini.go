@@ -8,7 +8,10 @@ import (
 	"io"
 )
 
-var ErrStopIterating = errors.New("stop iterating over sections")
+var (
+	ErrStopIterating = errors.New("stop iterating over sections")
+	ErrNoSuchParam   = errors.New("failed to find specified parameter")
+)
 
 func Parse(r io.Reader) (*INI, error) {
 	scanner := bufio.NewScanner(r)
@@ -125,7 +128,8 @@ func (o *INI) ParamInSection(paramName string, sectionName string) (string, erro
 		return "", fmt.Errorf("failed to find section: %q", sectionName)
 	}
 
-	return "", fmt.Errorf("failed to find %q in section %q", paramName, sectionName)
+	return "", fmt.Errorf("section: %q - param: %q - %w",
+		sectionName, paramName, ErrNoSuchParam)
 }
 
 type Section struct {
@@ -162,7 +166,7 @@ func (o *Section) IterateParams(paramName string, fn func(*Param) error) error {
 	}
 
 	if !foundOne {
-		return fmt.Errorf("failed to find param: %q", paramName)
+		return fmt.Errorf("%q - %w", paramName, ErrNoSuchParam)
 	}
 
 	return nil
@@ -175,7 +179,7 @@ func (o *Section) FirstParamValue(paramName string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("failed to find param: %q", paramName)
+	return "", fmt.Errorf("%q - %w", paramName, ErrNoSuchParam)
 }
 
 func (o *Section) AddOrSetFirstParam(paramName string, value string) error {
