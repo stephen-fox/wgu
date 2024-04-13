@@ -86,6 +86,7 @@ func main() {
 	}
 }
 
+// TODO: Flag to disable timestamps in logging.
 func mainWithError() error {
 	// Disable annoying flag.PrintDefaults on flag parse error.
 	flag.Usage = func() {}
@@ -828,6 +829,7 @@ func publicKeyToV6Addr(pub []byte) (netip.Addr, error) {
 }
 
 // TODO: Think about putting in separate library.
+// TODO: Need to retry lookup if a transient failure occurs / restructure code.
 func peerDNSResolution(ctx context.Context, cfg *wgconfig.Config) error {
 	netResolver := net.Resolver{}
 
