@@ -54,12 +54,12 @@ func (o *Config) IPCConfig() (string, error) {
 }
 
 func (o *Config) OurPublicKey() ([]byte, error) {
-	privateKeyValue, err := o.INI.ParamInSection("PrivateKey", "Interface")
+	privateKeyParam, err := o.INI.FirstParamInFirstSection("PrivateKey", "Interface")
 	if err != nil {
 		return nil, err
 	}
 
-	privateKey, err := parsePrivateKey(privateKeyValue)
+	privateKey, err := parsePrivateKey(privateKeyParam.Value)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse wireguard private key - %w", err)
 	}
@@ -70,12 +70,12 @@ func (o *Config) OurPublicKey() ([]byte, error) {
 }
 
 func (o *Config) OurAddr() (netip.Prefix, error) {
-	addrStr, err := o.INI.ParamInSection("Address", "Interface")
+	addrParam, err := o.INI.FirstParamInFirstSection("Address", "Interface")
 	if err != nil {
 		return netip.Prefix{}, err
 	}
 
-	ourAddr, err := netip.ParsePrefix(addrStr)
+	ourAddr, err := netip.ParsePrefix(addrParam.Value)
 	if err != nil {
 		return netip.Prefix{}, err
 	}
@@ -84,12 +84,12 @@ func (o *Config) OurAddr() (netip.Prefix, error) {
 }
 
 func (o *Config) OurMtuOr(defMtu int) (int, error) {
-	mtuStr, optErr := o.INI.ParamInSection("MTU", "Interface")
+	mtuParam, optErr := o.INI.FirstParamInFirstSection("MTU", "Interface")
 	if optErr != nil {
 		return defMtu, nil
 	}
 
-	mtu, err := strconv.Atoi(mtuStr)
+	mtu, err := strconv.Atoi(mtuParam.Value)
 	if err != nil {
 		return 0, err
 	}

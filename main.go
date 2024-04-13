@@ -706,30 +706,31 @@ func doAutoAddrPlanning(cfg *wgconfig.Config, strsToConfigs map[string]*forwardC
 	var peers []autoPeer
 
 	err = cfg.INI.IterateSections("Peer", func(s *ini.Section) error {
-		pkB64, err := s.FirstParamValue("PublicKey")
+		publicKeyParam, err := s.FirstParam("PublicKey")
 		if err != nil {
 			return err
 		}
 
-		pub, err := base64.StdEncoding.DecodeString(pkB64)
+		pub, err := wgkeys.NoisePublicKeyFromBase64(publicKeyParam.Value)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to parse peer public key: %q - %w",
+				publicKeyParam.Value, err)
 		}
 
-		addr, err := publicKeyToV6Addr(pub)
+		addr, err := publicKeyToV6Addr(pub[:])
 		if err != nil {
 			return fmt.Errorf("failed to convert peer public key to v6 addr: %q - %w",
-				pkB64, err)
+				publicKeyParam.Value, err)
 		}
 
 		err = s.AddOrSetFirstParam("AllowedIPs", addr.String()+"/128")
 		if err != nil {
 			return fmt.Errorf("failed to add or set AllowedIPs for peer %q - %w",
-				pkB64, err)
+				publicKeyParam.Value, err)
 		}
 
 		peers = append(peers, autoPeer{
-			publicKey: pub,
+			publicKey: pub[:],
 			addr:      addr,
 		})
 

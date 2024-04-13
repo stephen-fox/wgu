@@ -10,6 +10,7 @@ import (
 
 var (
 	ErrStopIterating = errors.New("stop iterating over sections")
+	ErrNoSuchSection = errors.New("failed to find specified section")
 	ErrNoSuchParam   = errors.New("failed to find specified parameter")
 )
 
@@ -84,6 +85,26 @@ func (o *INI) String() string {
 	return buf.String()
 }
 
+func (o *INI) FirstParamInFirstSection(paramName string, sectionName string) (*Param, error) {
+	var param *Param
+
+	err := o.IterateSections(sectionName, func(section *Section) error {
+		p, err := section.FirstParam(paramName)
+		if err != nil {
+			return err
+		}
+
+		param = p
+
+		return ErrStopIterating
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return param, nil
+}
+
 func (o *INI) IterateSections(sectionName string, fn func(*Section) error) error {
 	var foundOneSection bool
 
@@ -103,33 +124,10 @@ func (o *INI) IterateSections(sectionName string, fn func(*Section) error) error
 	}
 
 	if !foundOneSection {
-		return fmt.Errorf("failed to find section: %q", sectionName)
+		return fmt.Errorf("%q - %w", sectionName, ErrNoSuchSection)
 	}
 
 	return nil
-}
-
-func (o *INI) ParamInSection(paramName string, sectionName string) (string, error) {
-	var foundOneSection bool
-
-	for _, section := range o.Sections {
-		if section.Name == sectionName {
-			foundOneSection = true
-
-			for _, param := range section.Params {
-				if param.Name == paramName {
-					return param.Value, nil
-				}
-			}
-		}
-	}
-
-	if !foundOneSection {
-		return "", fmt.Errorf("failed to find section: %q", sectionName)
-	}
-
-	return "", fmt.Errorf("section: %q - param: %q - %w",
-		sectionName, paramName, ErrNoSuchParam)
 }
 
 type Section struct {
@@ -145,6 +143,21 @@ func (o *Section) string(b *bytes.Buffer) {
 		b.WriteString(param.Value)
 		b.WriteString("\n")
 	}
+}
+
+func (o *Section) FirstParam(paramName string) (*Param, error) {
+	var param *Param
+
+	err := o.IterateParams(paramName, func(p *Param) error {
+		param = p
+
+		return ErrStopIterating
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return param, nil
 }
 
 func (o *Section) IterateParams(paramName string, fn func(*Param) error) error {
@@ -170,16 +183,6 @@ func (o *Section) IterateParams(paramName string, fn func(*Param) error) error {
 	}
 
 	return nil
-}
-
-func (o *Section) FirstParamValue(paramName string) (string, error) {
-	for _, param := range o.Params {
-		if param.Name == paramName {
-			return param.Value, nil
-		}
-	}
-
-	return "", fmt.Errorf("%q - %w", paramName, ErrNoSuchParam)
 }
 
 func (o *Section) AddOrSetFirstParam(paramName string, value string) error {
