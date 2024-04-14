@@ -1,7 +1,6 @@
 package ini
 
 import (
-	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
@@ -9,66 +8,62 @@ import (
 )
 
 var (
+	// ErrStopIterating should be returned by an iterator function
+	// when no further iterations are required.
 	ErrStopIterating = errors.New("stop iterating over sections")
+
+	// ErrNoSuchSection is returned when the specified section
+	// does not exist.
 	ErrNoSuchSection = errors.New("failed to find specified section")
-	ErrNoSuchParam   = errors.New("failed to find specified parameter")
+
+	// ErrNoSuchParam  is returned when the specified parameter
+	// does not exist.
+	ErrNoSuchParam = errors.New("failed to find specified parameter")
 )
 
+// Parse parses the contents of an io.Reader to an INI.
+//
+// This function is useful for parsing an INI blob without
+// doing deeper inspection of its contents.
 func Parse(r io.Reader) (*INI, error) {
-	scanner := bufio.NewScanner(r)
+	config := &INI{}
 
-	line := 0
-
-	var sections []*Section
-
-	for scanner.Scan() {
-		line++
-
-		withoutSpaces := bytes.TrimSpace(scanner.Bytes())
-
-		if len(withoutSpaces) == 0 || withoutSpaces[0] == '#' {
-			continue
-		}
-
-		if withoutSpaces[0] == '[' {
-			name, err := parseSectionLine(withoutSpaces)
-			if err != nil {
-				return nil, fmt.Errorf("line %d - failed to parse section header - %w", line, err)
-			}
-
-			sections = append(sections, &Section{Name: name})
-
-			continue
-		}
-
-		if len(sections) == 0 {
-			return nil, fmt.Errorf("line %d - parameter appears outside of a section", line)
-		}
-
-		paramName, paramValue, err := parseParamLine(withoutSpaces)
-		if err != nil {
-			return nil, fmt.Errorf("line %d - failed to parse line - %w", line, err)
-		}
-
-		currentSection := sections[len(sections)-1]
-		currentSection.Params = append(*&currentSection.Params, &Param{
-			Name:  paramName,
-			Value: paramValue,
-		})
-	}
-
-	err := scanner.Err()
+	err := ParseSchema(r, config)
 	if err != nil {
 		return nil, err
 	}
 
-	return &INI{
-		Sections: sections,
-	}, nil
+	return config, nil
 }
 
+// INI represents an INI blob.
 type INI struct {
+	// Globals are global parameters.
+	Globals []*Param
+
+	// Sections are sections contained within the INI blob.
 	Sections []*Section
+}
+
+// GlobalParam partly implements the Schema interface.
+func (o *INI) GlobalParam(p *Param) error {
+	o.Globals = append(o.Globals, p)
+
+	return nil
+}
+
+// StartSection partly implements the Schema interface.
+func (o *INI) StartSection(name string) (SectionSchema, error) {
+	section := &Section{Name: name}
+
+	o.Sections = append(o.Sections, section)
+
+	return section, nil
+}
+
+// Validate partly implements the Schema interface.
+func (o *INI) Validate() error {
+	return nil
 }
 
 func (o *INI) String() string {
@@ -85,6 +80,11 @@ func (o *INI) String() string {
 	return buf.String()
 }
 
+// FirstParamInFirstSection returns the first instance of the parameter
+// named by paramName in the section named by sectionName.
+//
+// If the specified section does not exist, ErrNoSuchSection is returned.
+// If the specified parameter does not exist, ErrNoSuchParam is returned.
 func (o *INI) FirstParamInFirstSection(paramName string, sectionName string) (*Param, error) {
 	var param *Param
 
@@ -105,6 +105,12 @@ func (o *INI) FirstParamInFirstSection(paramName string, sectionName string) (*P
 	return param, nil
 }
 
+// IterateSections iterates over each section named by sectionName.
+// It executes fn for each section.
+//
+// Iteration can be stopped by returning ErrStopIterating.
+//
+// If the specified section does not exist, ErrNoSuchSection is returned.
 func (o *INI) IterateSections(sectionName string, fn func(*Section) error) error {
 	var foundOneSection bool
 
@@ -130,9 +136,28 @@ func (o *INI) IterateSections(sectionName string, fn func(*Section) error) error
 	return nil
 }
 
+// Section represents a section in an INI blob.
 type Section struct {
 	Name   string
 	Params []*Param
+}
+
+// AddParam adds the provided parameter to the Section.
+//
+// It partly implements the SectionSchema interface.
+func (o *Section) AddParam(p *Param) error {
+	o.Params = append(o.Params, p)
+
+	return nil
+}
+
+// Validate partly implements the SectionSchema interface.
+func (o *Section) Validate() error {
+	if o.Name == "" {
+		return errors.New("section is missing name")
+	}
+
+	return nil
 }
 
 func (o *Section) string(b *bytes.Buffer) {
@@ -145,6 +170,10 @@ func (o *Section) string(b *bytes.Buffer) {
 	}
 }
 
+// FirstParam returns the first instance of the parameter named
+// by paramName.
+//
+// If the specified parameter does not exist, ErrNoSuchParam is returned.
 func (o *Section) FirstParam(paramName string) (*Param, error) {
 	var param *Param
 
@@ -160,6 +189,12 @@ func (o *Section) FirstParam(paramName string) (*Param, error) {
 	return param, nil
 }
 
+// IterateParams iterates over each parameter named by paramName.
+// It executes fn for each parameter.
+//
+// Iteration can be stopped by returning ErrStopIterating.
+//
+// If the specified parameter does not exist, ErrNoSuchParam is returned.
 func (o *Section) IterateParams(paramName string, fn func(*Param) error) error {
 	var foundOne bool
 
@@ -185,7 +220,10 @@ func (o *Section) IterateParams(paramName string, fn func(*Param) error) error {
 	return nil
 }
 
-func (o *Section) AddOrSetFirstParam(paramName string, value string) error {
+// SetOrAddFirstParam sets the parameter named by paramName to the specified
+// value. If the parameter does not exist, a new parameter is added with the
+// specified name and value.
+func (o *Section) SetOrAddFirstParam(paramName string, value string) error {
 	for i := range o.Params {
 		if o.Params[i].Name == paramName {
 			o.Params[i].Value = value
@@ -201,56 +239,8 @@ func (o *Section) AddOrSetFirstParam(paramName string, value string) error {
 	return nil
 }
 
+// Param represents a parameter in an INI blob.
 type Param struct {
 	Name  string
 	Value string
-}
-
-func parseSectionLine(line []byte) (string, error) {
-	if len(line) < 2 {
-		return "", errors.New("invalid section header length")
-	}
-
-	if line[0] != '[' {
-		return "", errors.New("section header does not start with '['")
-	}
-
-	if line[len(line)-1] != ']' {
-		return "", errors.New("section header does not end with ']'")
-	}
-
-	line = bytes.TrimSpace(line[1 : len(line)-1])
-
-	if len(line) == 0 {
-		return "", errors.New("section name is empty")
-	}
-
-	return string(line), nil
-}
-
-func parseParamLine(line []byte) (string, string, error) {
-	if !bytes.Contains(line, []byte{'='}) {
-		return string(line), "", nil
-	}
-
-	parts := bytes.SplitN(line, []byte("="), 2)
-
-	switch len(parts) {
-	case 0:
-		return "", "", errors.New("line is empty")
-	case 1:
-		return "", "", errors.New("line is missing value")
-	}
-
-	param := bytes.TrimSpace(parts[0])
-	value := bytes.TrimSpace(parts[1])
-
-	switch {
-	case len(param) == 0:
-		return "", "", errors.New("parameter name is empty")
-	case len(value) == 0:
-		return "", "", errors.New("parameter value is empty")
-	}
-
-	return string(param), string(value), nil
 }
