@@ -2,14 +2,13 @@ package wgconfig
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/netip"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -18,169 +17,180 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 )
 
+// Parse parses a Config from an io.Reader.
 func Parse(r io.Reader) (*Config, error) {
-	iniConfig, err := ini.Parse(r)
+	config := &Config{}
+
+	err := ini.ParseSchema(r, config)
 	if err != nil {
 		return nil, err
 	}
 
-	return FromINI(iniConfig), nil
+	return config, nil
 }
 
-func FromINI(iniConfig *ini.INI) *Config {
-	return &Config{INI: iniConfig}
-}
-
+// Config represents the WireGuard configuration.
 type Config struct {
-	INI *ini.INI
+	Interface *Interface
+	Peers     []*Peer
+	Others    []*ini.Section
 }
 
-func (o *Config) String() string {
-	return o.INI.String()
+// GlobalParam partly implements the ini.Schema interface.
+func (o *Config) GlobalParam(*ini.Param) error {
+	return errors.New("global parameters are not supported")
 }
 
+// StartSection partly implements the ini.Schema interface.
+func (o *Config) StartSection(name string) (ini.SectionSchema, error) {
+	switch name {
+	case "Interface":
+		if o.Interface != nil {
+			return nil, errors.New("only one Interface section is permitted")
+		}
+
+		o.Interface = &Interface{}
+
+		return o.Interface, nil
+	case "Peer":
+		peer := &Peer{}
+
+		o.Peers = append(o.Peers, peer)
+
+		return peer, nil
+	default:
+		other := &ini.Section{Name: name}
+
+		o.Others = append(o.Others, other)
+
+		return other, nil
+	}
+}
+
+// Validate partly implements the ini.Schema interface.
+func (o *Config) Validate() error {
+	if len(o.Peers) == 0 {
+		return errors.New("no Peer sections were defined")
+	}
+
+	return nil
+}
+
+// IPCConfig returns the Config in WireGuard IPC format.
+//
+// For more information regarding this format, please refer to:
+// https://www.wireguard.com/xplatform/#configuration-protocol
 func (o *Config) IPCConfig() (string, error) {
 	buf := bytes.NewBuffer(nil)
 
-	for _, section := range o.INI.Sections {
-		err := sectionToIpcString(section, buf)
+	err := o.Interface.ipcString(buf)
+	if err != nil {
+		return "", fmt.Errorf("failed to convert Interface section to ipc string - %w", err)
+	}
+
+	for _, peer := range o.Peers {
+		err := peer.ipcString(buf)
 		if err != nil {
-			return "", fmt.Errorf("failed to convert section %q to ipc config - %w",
-				section.Name, err)
+			return "", fmt.Errorf("failed to convert Peer section to ipc string - %w", err)
 		}
 	}
 
 	return buf.String(), nil
 }
 
-func (o *Config) OurPublicKey() ([]byte, error) {
-	privateKeyParam, err := o.INI.FirstParamInFirstSection("PrivateKey", "Interface")
-	if err != nil {
-		return nil, err
-	}
-
-	privateKey, err := parsePrivateKey(privateKeyParam.Value)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse wireguard private key - %w", err)
-	}
-
-	pub := wgkeys.NoisePublicKeyFromPrivate(privateKey)
-
-	return pub[:], nil
+// Interface represents the Interface section found in a WireGuard
+// configuration file.
+//
+// See also:
+//   - https://github.com/pirate/wireguard-docs?tab=readme-ov-file#interface
+type Interface struct {
+	PrivateKey *device.NoisePrivateKey
+	PublicKey  *device.NoisePublicKey
+	Address    *netip.Prefix
+	MTU        *int
+	Others     []*ini.Param
 }
 
-func (o *Config) OurAddr() (netip.Prefix, error) {
-	addrParam, err := o.INI.FirstParamInFirstSection("Address", "Interface")
-	if err != nil {
-		return netip.Prefix{}, err
-	}
+// AddParam partly implements the ini.SectionSchema interface.
+func (o *Interface) AddParam(p *ini.Param) error {
+	switch p.Name {
+	case "PrivateKey":
+		if o.PrivateKey != nil {
+			return errors.New("PrivateKey is already set")
+		}
 
-	ourAddr, err := netip.ParsePrefix(addrParam.Value)
-	if err != nil {
-		return netip.Prefix{}, err
-	}
-
-	return ourAddr, nil
-}
-
-func (o *Config) OurMtuOr(defMtu int) (int, error) {
-	mtuParam, optErr := o.INI.FirstParamInFirstSection("MTU", "Interface")
-	if optErr != nil {
-		return defMtu, nil
-	}
-
-	mtu, err := strconv.Atoi(mtuParam.Value)
-	if err != nil {
-		return 0, err
-	}
-
-	return mtu, nil
-}
-
-func (o *Config) PeerWithPublicKeyBase64(base64PublicKey string) (interface{}, bool) {
-	err := o.INI.IterateSections("Peer", func(section *ini.Section) error {
-		err := section.IterateParams("PublicKey", func(param *ini.Param) error {
-			if param.Value == base64PublicKey {
-				return ini.ErrStopIterating
-			}
-
-			return errors.New("nope")
-		})
+		privateKey, err := parsePrivateKey(p.Value)
 		if err != nil {
 			return err
 		}
 
-		return ini.ErrStopIterating
-	})
-	if err != nil {
-		return nil, false
+		o.PrivateKey = privateKey
+		o.PublicKey = wgkeys.NoisePublicKeyFromPrivate(privateKey)
+	case "Address":
+		if o.Address != nil {
+			return errors.New("Address is already set")
+		}
+
+		prefix, err := netip.ParsePrefix(p.Value)
+		if err != nil {
+			return err
+		}
+
+		o.Address = &prefix
+	case "MTU":
+		if o.MTU != nil {
+			return errors.New("MTU is already set")
+		}
+
+		mtu, err := strconv.Atoi(p.Value)
+		if err != nil {
+			return fmt.Errorf("failed to parse mtu as an int - %w", err)
+		}
+
+		if mtu <= 0 {
+			return fmt.Errorf("mtu is less than or equal to zero (%d)", mtu)
+		}
+
+		o.MTU = &mtu
+	default:
+		o.Others = append(o.Others, p)
 	}
 
-	return nil, true
+	return nil
 }
 
-func sectionToIpcString(section *ini.Section, b *bytes.Buffer) error {
-	// For param names, refer to:
-	// https://www.wireguard.com/xplatform/#configuration-protocol
+// Validate partly implements the ini.SectionSchema interface.
+func (o *Interface) Validate() error {
+	if o.PrivateKey == nil {
+		return errors.New("missing PrivateKey param")
+	}
 
-	// This sucks, but the library expects the public key param to
-	// appear first for each peer.
-	sortedParams := make([]*ini.Param, len(section.Params))
-	copy(sortedParams, section.Params)
+	return nil
+}
 
-	sort.SliceStable(sortedParams, func(i, j int) bool {
-		return sortedParams[i].Name == "PublicKey"
-	})
+func (o *Interface) ipcString(b *bytes.Buffer) error {
+	b.WriteString("private_key")
+	b.WriteString("=")
+	b.WriteString(hex.EncodeToString(o.PrivateKey[:]))
+	b.WriteString("\n")
 
-	for _, param := range sortedParams {
+	for _, param := range o.Others {
 		var ipcParamName string
 		var optIpcValue string
 
-		switch section.Name {
-		case "Interface":
-			switch param.Name {
-			case "PrivateKey":
-				ipcParamName = "private_key"
-
-				privateKey, err := parsePrivateKey(param.Value)
-				if err != nil {
-					return err
-				}
-
-				optIpcValue = hex.EncodeToString(privateKey[:])
-			case "Address":
-				// Not needed for ipc.
-				continue
-			case "MTU":
-				ipcParamName = "mtu"
-			case "ListenPort":
-				ipcParamName = "listen_port"
-			}
-		case "Peer":
-			switch param.Name {
-			case "Endpoint":
-				ipcParamName = "endpoint"
-			case "PublicKey":
-				ipcParamName = "public_key"
-
-				raw, err := base64.StdEncoding.DecodeString(param.Value)
-				if err != nil {
-					return err
-				}
-
-				optIpcValue = hex.EncodeToString(raw)
-			case "AllowedIPs":
-				ipcParamName = "allowed_ip"
-			case "PersistentKeepalive":
-				ipcParamName = "persistent_keepalive_interval"
-			}
-		default:
+		switch param.Name {
+		case "Address":
+			// Not needed for ipc.
 			continue
+		case "MTU":
+			ipcParamName = "mtu"
+		case "ListenPort":
+			ipcParamName = "listen_port"
 		}
 
 		if ipcParamName == "" {
-			return fmt.Errorf("no known ipc param for %q in section %q",
-				param, section.Name)
+			return fmt.Errorf("no known ipc param for Interface param: %q",
+				param)
 		}
 
 		b.WriteString(ipcParamName)
@@ -194,6 +204,186 @@ func sectionToIpcString(section *ini.Section, b *bytes.Buffer) error {
 	}
 
 	return nil
+}
+
+// Peer represents the Peer section found in a WireGuard configuration file.
+//
+// See also:
+//   - https://github.com/pirate/wireguard-docs?tab=readme-ov-file#peer
+type Peer struct {
+	PublicKey  *device.NoisePublicKey
+	Endpoint   *AddrPort
+	AllowedIPs []netip.Prefix
+	Others     []*ini.Param
+}
+
+// AddParam partly implements the ini.SectionSchema interface.
+func (o *Peer) AddParam(p *ini.Param) error {
+	switch p.Name {
+	case "PublicKey":
+		if o.PublicKey != nil {
+			return errors.New("PublicKey is already set")
+		}
+
+		publicKey, err := wgkeys.NoisePublicKeyFromBase64(p.Value)
+		if err != nil {
+			return err
+		}
+
+		o.PublicKey = publicKey
+	case "Endpoint":
+		if o.Endpoint != nil {
+			return errors.New("Endpoint is already set")
+		}
+
+		addrPort, err := addrPortFromString(p.Value)
+		if err != nil {
+			return fmt.Errorf("failed to parse address and port - %w", err)
+		}
+
+		o.Endpoint = &addrPort
+	case "AllowedIPs":
+		prefixStrs := strings.Split(p.Value, ",")
+
+		for _, str := range prefixStrs {
+			allowedIP, err := netip.ParsePrefix(str)
+			if err != nil {
+				return fmt.Errorf("failed to parse cidr: %q - %w",
+					str, err)
+			}
+
+			o.AllowedIPs = append(
+				o.AllowedIPs,
+				allowedIP)
+
+		}
+	default:
+		o.Others = append(o.Others, p)
+	}
+
+	return nil
+}
+
+// Validate partly implements the ini.SectionSchema interface.
+func (o *Peer) Validate() error {
+	if o.PublicKey == nil {
+		return errors.New("missing PublicKey param")
+	}
+
+	return nil
+}
+
+func (o *Peer) ipcString(b *bytes.Buffer) error {
+	// public_key must always be first.
+	b.WriteString("public_key")
+	b.WriteString("=")
+	b.WriteString(hex.EncodeToString(o.PublicKey[:]))
+	b.WriteString("\n")
+
+	if o.Endpoint != nil {
+		b.WriteString("endpoint")
+		b.WriteString("=")
+		b.WriteString(o.Endpoint.String())
+		b.WriteString("\n")
+	}
+
+	if len(o.AllowedIPs) > 0 {
+		for _, prefix := range o.AllowedIPs {
+			b.WriteString("allowed_ip")
+			b.WriteString("=")
+			b.WriteString(prefix.String())
+			b.WriteString("\n")
+		}
+	}
+
+	for _, param := range o.Others {
+		var ipcParamName string
+		var optIpcValue string
+
+		switch param.Name {
+		case "PersistentKeepalive":
+			ipcParamName = "persistent_keepalive_interval"
+		}
+
+		if ipcParamName == "" {
+			return fmt.Errorf("no known ipc param for Peer param: %q",
+				param)
+		}
+
+		b.WriteString(ipcParamName)
+		b.WriteString("=")
+		if optIpcValue == "" {
+			b.WriteString(param.Value)
+		} else {
+			b.WriteString(optIpcValue)
+		}
+		b.WriteString("\n")
+	}
+
+	return nil
+}
+
+func addrPortFromString(addrPortStr string) (AddrPort, error) {
+	host, portStr, err := net.SplitHostPort(addrPortStr)
+	if err != nil {
+		return AddrPort{}, err
+	}
+
+	portInt, err := strconv.ParseUint(portStr, 10, 16)
+	if err != nil {
+		return AddrPort{}, err
+	}
+
+	port := uint16(portInt)
+
+	return AddrPortFrom(host, port), nil
+}
+
+func AddrPortFrom(host string, port uint16) AddrPort {
+	var optAddrPort netip.AddrPort
+	ip, err := netip.ParseAddr(host)
+	if err == nil {
+		optAddrPort = netip.AddrPortFrom(ip, port)
+	}
+
+	return AddrPort{
+		host: host,
+		port: port,
+		ip:   optAddrPort,
+	}
+}
+
+// AddrPort represents an address and port where the host part can be
+// an IP address, a hostname, or some other string.
+type AddrPort struct {
+	host string
+	ip   netip.AddrPort
+	port uint16
+}
+
+func (o AddrPort) Host() string {
+	return o.host
+}
+
+func (o AddrPort) Port() uint16 {
+	return o.port
+}
+
+func (o AddrPort) IsIP() (netip.AddrPort, bool) {
+	if o.ip.Addr().Compare(netip.Addr{}) == 0 {
+		return netip.AddrPort{}, false
+	}
+
+	return o.ip, true
+}
+
+func (o AddrPort) String() string {
+	ip, isIp := o.IsIP()
+	if isIp {
+		return ip.String()
+	}
+
+	return fmt.Sprintf("%s:%d", o.host, o.port)
 }
 
 func parsePrivateKey(iniParamValue string) (*device.NoisePrivateKey, error) {
