@@ -79,6 +79,8 @@ var (
 )
 
 func main() {
+	log.SetFlags(0)
+
 	err := mainWithError()
 	if err != nil {
 		log.Fatalln("fatal:", err)
@@ -117,6 +119,8 @@ func mainWithError() error {
 	writeConfig := flag.Bool("write-config", false, "")
 
 	writeIpcConfig := flag.Bool("write-ipc-config", false, "")
+
+	noTimeStamps := flag.Bool("no-timestamps", false, "Disable logging timestamps")
 
 	flag.Parse()
 
@@ -162,6 +166,10 @@ func mainWithError() error {
 			cfg.Interface.PublicKey[:]) + "\n")
 
 		return nil
+	}
+
+	if !*noTimeStamps {
+		log.SetFlags(log.LstdFlags)
 	}
 
 	switch *logLevelString {
