@@ -87,7 +87,6 @@ func main() {
 	}
 }
 
-// TODO: Flag to disable timestamps in logging.
 func mainWithError() error {
 	// Disable annoying flag.PrintDefaults on flag parse error.
 	flag.Usage = func() {}
