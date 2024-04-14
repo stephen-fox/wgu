@@ -120,7 +120,7 @@ func mainWithError() error {
 
 	writeIpcConfig := flag.Bool("write-ipc-config", false, "")
 
-	noTimeStamps := flag.Bool("no-timestamps", false, "Disable logging timestamps")
+	noTimeStamps := flag.Bool("no-log-timestamps", false, "Disable logging timestamps")
 
 	flag.Parse()
 

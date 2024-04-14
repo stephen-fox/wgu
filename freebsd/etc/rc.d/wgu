@@ -12,7 +12,7 @@ desc="${name}"
 rcvar="${name}_enable"
 pidfile="/var/run/${name}.pid"
 command="/usr/sbin/daemon"
-command_args="-u _${name} -T ${name} -p ${pidfile} -- ${procname} -auto -config /etc/wgu/wgu.conf -no-timestamps"
+command_args="-u _${name} -T ${name} -p ${pidfile} -- ${procname} -auto -config /etc/wgu/wgu.conf -no-log-timestamps"
 
 load_rc_config $name
 run_rc_command "$@"
