@@ -803,6 +803,10 @@ func peerDNSResolution(ctx context.Context, cfg *wgconfig.Config) error {
 	netResolver := net.Resolver{}
 
 	for _, peer := range cfg.Peers {
+		if peer.Endpoint == nil {
+			continue
+		}
+
 		_, isIP := peer.Endpoint.IsIP()
 		if isIP {
 			continue
