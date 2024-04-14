@@ -174,6 +174,13 @@ func (o *Interface) ipcString(b *bytes.Buffer) error {
 	b.WriteString(hex.EncodeToString(o.PrivateKey[:]))
 	b.WriteString("\n")
 
+	if o.MTU != nil {
+		b.WriteString("mtu")
+		b.WriteString("=")
+		b.WriteString(strconv.Itoa(*o.MTU))
+		b.WriteString("\n")
+	}
+
 	for _, param := range o.Others {
 		var ipcParamName string
 		var optIpcValue string
@@ -182,8 +189,6 @@ func (o *Interface) ipcString(b *bytes.Buffer) error {
 		case "Address":
 			// Not needed for ipc.
 			continue
-		case "MTU":
-			ipcParamName = "mtu"
 		case "ListenPort":
 			ipcParamName = "listen_port"
 		}
