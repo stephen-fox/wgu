@@ -18,7 +18,6 @@ import (
 	"syscall"
 	"time"
 
-	"gitlab.com/stephen-fox/wgu/internal/ini"
 	"gitlab.com/stephen-fox/wgu/internal/wgconfig"
 	"gitlab.com/stephen-fox/wgu/internal/wgkeys"
 	"golang.zx2c4.com/wireguard/conn"
@@ -159,12 +158,8 @@ func mainWithError() error {
 			return err
 		}
 
-		pubKey, err := cfg.OurPublicKey()
-		if err != nil {
-			return err
-		}
-
-		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(pubKey) + "\n")
+		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(
+			cfg.Interface.PublicKey[:]) + "\n")
 
 		return nil
 	}
@@ -200,7 +195,13 @@ func mainWithError() error {
 		return fmt.Errorf("failed to parse config file - %w", err)
 	}
 
-	for _, section := range cfg.INI.Sections {
+	if cfg.Interface.MTU == nil {
+		// TODO: Add flag.
+		i := 1420
+		cfg.Interface.MTU = &i
+	}
+
+	for _, section := range cfg.Others {
 		if section.Name != "Forwards" {
 			continue
 		}
@@ -228,15 +229,16 @@ func mainWithError() error {
 
 	var optAutoPeers []autoPeer
 	if *autoAddrPlanning {
-		optAutoPeers, err = doAutoAddrPlanning(cfg, forwards)
+		optAutoPeers, err = doAutoAddrPlanning(cfg)
 		if err != nil {
 			return fmt.Errorf("failed to do automatic address planning - %w", err)
 		}
 	}
 
 	if *writeConfig {
-		_, err = os.Stdout.WriteString(cfg.String())
-		return err
+		//_, err = os.Stdout.WriteString(cfg.String())
+		//return err
+		return errors.New("TODO")
 	}
 
 	if *writeIpcConfig {
@@ -249,12 +251,11 @@ func mainWithError() error {
 		return err
 	}
 
-	ourWgAddr, err := cfg.OurAddr()
-	if err != nil {
-		return fmt.Errorf("failed to get our internal wg address from config - %w", err)
+	if cfg.Interface.Address == nil {
+		return fmt.Errorf("failed to get our internal wg address from config")
 	}
 
-	ourWgAddrStr := ourWgAddr.Addr().String()
+	ourWgAddrStr := cfg.Interface.Address.Addr().String()
 	for str, forward := range forwards {
 		err = replaceWgAddrShortcuts(replaceWgAddrShortcutsArgs{
 			addr:               &forward.lAddr.addr,
@@ -279,8 +280,6 @@ func mainWithError() error {
 		}
 	}
 
-	// TODO: Add flag.
-	ourMtu, err := cfg.OurMtuOr(1420)
 	if err != nil {
 		return fmt.Errorf("failed to read mtu from config - %w", err)
 	}
@@ -300,9 +299,9 @@ func mainWithError() error {
 	}
 
 	tun, tnet, err := netstack.CreateNetTUN(
-		[]netip.Addr{ourWgAddr.Addr()},
+		[]netip.Addr{cfg.Interface.Address.Addr()},
 		[]netip.Addr{},
-		ourMtu,
+		*cfg.Interface.MTU,
 	)
 	if err != nil {
 		return fmt.Errorf("Error creating tunnel interface: %s", err)
@@ -345,7 +344,7 @@ func mainWithError() error {
 
 		lNet := netOpForAddr(netOpForAddrArgs{
 			addr:         lAddr,
-			ourWgAddr:    ourWgAddr.Addr(),
+			ourWgAddr:    cfg.Interface.Address.Addr(),
 			localNetOp:   localNetOp,
 			tunnelNetOp:  tunnelNetOp,
 			optAutoPeers: optAutoPeers,
@@ -353,7 +352,7 @@ func mainWithError() error {
 
 		rNet := netOpForAddr(netOpForAddrArgs{
 			addr:         rAddr,
-			ourWgAddr:    ourWgAddr.Addr(),
+			ourWgAddr:    cfg.Interface.Address.Addr(),
 			localNetOp:   localNetOp,
 			tunnelNetOp:  tunnelNetOp,
 			optAutoPeers: optAutoPeers,
@@ -684,61 +683,31 @@ func (o *forwardFlag) String() string {
 	return "" // TODO
 }
 
-func doAutoAddrPlanning(cfg *wgconfig.Config, strsToConfigs map[string]*forwardConfig) ([]autoPeer, error) {
-	ourPub, err := cfg.OurPublicKey()
+func doAutoAddrPlanning(cfg *wgconfig.Config) ([]autoPeer, error) {
+	ourIntAddr, err := publicKeyToV6Addr(cfg.Interface.PublicKey[:])
 	if err != nil {
-		return nil, fmt.Errorf("failed to get our public key from config - %w", err)
+		return nil, fmt.Errorf("failed to convert our public key to v6 addr: %q - %w",
+			base64.StdEncoding.EncodeToString(cfg.Interface.PublicKey[:]), err)
 	}
 
-	ourIntAddr, err := publicKeyToV6Addr(ourPub)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert our public key to v6 addr: %x - %w",
-			ourPub, err)
-	}
-
-	err = cfg.INI.IterateSections("Interface", func(s *ini.Section) error {
-		return s.AddOrSetFirstParam("Address", ourIntAddr.String()+"/128")
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to set our internal ip to %q - %w",
-			ourIntAddr.String(), err)
-	}
+	ourAddr := netip.PrefixFrom(ourIntAddr, 128)
+	cfg.Interface.Address = &ourAddr
 
 	var peers []autoPeer
 
-	err = cfg.INI.IterateSections("Peer", func(s *ini.Section) error {
-		publicKeyParam, err := s.FirstParam("PublicKey")
+	for _, peer := range cfg.Peers {
+		peerAddr, err := publicKeyToV6Addr(peer.PublicKey[:])
 		if err != nil {
-			return err
+			return nil, fmt.Errorf("failed to convert peer public key to v6 addr: %q - %w",
+				base64.StdEncoding.EncodeToString(peer.PublicKey[:]), err)
 		}
 
-		pub, err := wgkeys.NoisePublicKeyFromBase64(publicKeyParam.Value)
-		if err != nil {
-			return fmt.Errorf("failed to parse peer public key: %q - %w",
-				publicKeyParam.Value, err)
-		}
-
-		addr, err := publicKeyToV6Addr(pub[:])
-		if err != nil {
-			return fmt.Errorf("failed to convert peer public key to v6 addr: %q - %w",
-				publicKeyParam.Value, err)
-		}
-
-		err = s.AddOrSetFirstParam("AllowedIPs", addr.String()+"/128")
-		if err != nil {
-			return fmt.Errorf("failed to add or set AllowedIPs for peer %q - %w",
-				publicKeyParam.Value, err)
-		}
+		peer.AllowedIPs = append(peer.AllowedIPs, netip.PrefixFrom(peerAddr, 128))
 
 		peers = append(peers, autoPeer{
-			publicKey: pub[:],
-			addr:      addr,
+			publicKey: peer.PublicKey[:],
+			addr:      peerAddr,
 		})
-
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to automatically set peer addresses - %w", err)
 	}
 
 	return peers, nil
@@ -833,46 +802,27 @@ func publicKeyToV6Addr(pub []byte) (netip.Addr, error) {
 func peerDNSResolution(ctx context.Context, cfg *wgconfig.Config) error {
 	netResolver := net.Resolver{}
 
-	return cfg.INI.IterateSections("Peer", func(section *ini.Section) error {
-		err := section.IterateParams("Endpoint", func(param *ini.Param) error {
-			host, portStr, err := net.SplitHostPort(param.Value)
-			if err != nil {
-				return fmt.Errorf("peer %q: failed to split host port - %w",
-					param.Value, err)
-			}
-
-			addrs, err := netResolver.LookupHost(ctx, host)
-			if err != nil {
-				return fmt.Errorf("peer %q: failed to lookup %q - %w",
-					param.Value, host, err)
-			}
-
-			// TODO: Doesn't seem like wireguard supports multiple endpoints.
-			//  For now we will just use the first address.
-			addr, err := netip.ParseAddr(addrs[0])
-			if err != nil {
-				return fmt.Errorf("peer %q: failed to parse resolved address %q - %w",
-					param.Value, addrs[0], err)
-			}
-
-			port, err := strconv.ParseUint(portStr, 10, 16)
-			if err != nil {
-				return fmt.Errorf("peer %q: failed to parse port string to uint16 - %w",
-					param.Value, err)
-			}
-
-			param.Value = netip.AddrPortFrom(addr, uint16(port)).String()
-			return nil
-		})
-		switch {
-		case errors.Is(err, ini.ErrNoSuchParam):
-			return nil
-		case err != nil:
-			return fmt.Errorf("failed to resolve endpoint for peer - %w", err)
-		default:
-			return nil
+	for _, peer := range cfg.Peers {
+		_, isIP := peer.Endpoint.IsIP()
+		if isIP {
+			continue
 		}
-	})
+
+		addrs, err := netResolver.LookupHost(ctx, peer.Endpoint.Host())
+		if err != nil {
+			return fmt.Errorf("peer %q: failed to lookup %q - %w",
+				base64.StdEncoding.EncodeToString(peer.PublicKey[:]),
+				peer.Endpoint.Host(),
+				err)
+		}
+
+		// TODO: Doesn't seem like wireguard supports multiple endpoints.
+		//  For now we will just use the first address.
+		newAddrPort := wgconfig.AddrPortFrom(addrs[0], peer.Endpoint.Port())
+		peer.Endpoint = &newAddrPort
+	}
+
+	return nil
 }
 
 type netOpForAddrArgs struct {
