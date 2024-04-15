@@ -243,9 +243,8 @@ func mainWithError() error {
 	}
 
 	if *writeConfig {
-		//_, err = os.Stdout.WriteString(cfg.String())
-		//return err
-		return errors.New("TODO")
+		_, err = os.Stdout.WriteString(cfg.WireGuardString())
+		return err
 	}
 
 	if *writeIpcConfig {

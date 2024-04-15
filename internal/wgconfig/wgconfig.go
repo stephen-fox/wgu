@@ -2,6 +2,7 @@ package wgconfig
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -76,6 +77,23 @@ func (o *Config) Validate() error {
 	return nil
 }
 
+func (o *Config) WireGuardString() string {
+	b := bytes.NewBuffer(nil)
+
+	o.Interface.string(b)
+	b.WriteByte('\n')
+
+	for i, peer := range o.Peers {
+		peer.string(b)
+
+		if len(o.Peers)-1 != i {
+			b.WriteByte('\n')
+		}
+	}
+
+	return b.String()
+}
+
 // IPCConfig returns the Config in WireGuard IPC format.
 //
 // For more information regarding this format, please refer to:
@@ -106,6 +124,7 @@ func (o *Config) IPCConfig() (string, error) {
 type Interface struct {
 	PrivateKey *device.NoisePrivateKey
 	PublicKey  *device.NoisePublicKey
+	ListenPort *uint16
 	Address    *netip.Prefix
 	MTU        *int
 	Others     []*ini.Param
@@ -126,6 +145,15 @@ func (o *Interface) AddParam(p *ini.Param) error {
 
 		o.PrivateKey = privateKey
 		o.PublicKey = wgkeys.NoisePublicKeyFromPrivate(privateKey)
+	case "ListenPort":
+		i, err := strconv.ParseUint(p.Value, 10, 16)
+		if err != nil {
+			return err
+		}
+
+		tmp := uint16(i)
+
+		o.ListenPort = &tmp
 	case "Address":
 		if o.Address != nil {
 			return errors.New("Address is already set")
@@ -168,38 +196,45 @@ func (o *Interface) Validate() error {
 	return nil
 }
 
+func (o *Interface) string(b *bytes.Buffer) {
+	b.WriteString("[Interface]\n")
+	b.WriteString("PrivateKey = ")
+	b.WriteString(base64.StdEncoding.EncodeToString(o.PrivateKey[:]))
+	b.WriteString("\n")
+
+	if o.ListenPort != nil {
+		b.WriteString("ListenPort = ")
+		b.WriteString(strconv.Itoa(int(*o.ListenPort)))
+		b.WriteString("\n")
+	}
+
+	if o.Address != nil {
+		b.WriteString("Address = ")
+		b.WriteString(o.Address.String())
+		b.WriteString("\n")
+	}
+
+	if o.MTU != nil {
+		b.WriteString("MTU = ")
+		b.WriteString(strconv.Itoa(*o.MTU))
+		b.WriteString("\n")
+	}
+}
+
 func (o *Interface) ipcString(b *bytes.Buffer) error {
 	b.WriteString("private_key")
 	b.WriteString("=")
 	b.WriteString(hex.EncodeToString(o.PrivateKey[:]))
 	b.WriteString("\n")
 
-	for _, param := range o.Others {
-		var ipcParamName string
-		var optIpcValue string
-
-		switch param.Name {
-		case "Address":
-			// Not needed for ipc.
-			continue
-		case "ListenPort":
-			ipcParamName = "listen_port"
-		}
-
-		if ipcParamName == "" {
-			return fmt.Errorf("no known ipc param for Interface param: %q",
-				param)
-		}
-
-		b.WriteString(ipcParamName)
+	if o.ListenPort != nil {
+		b.WriteString("listen_port")
 		b.WriteString("=")
-		if optIpcValue == "" {
-			b.WriteString(param.Value)
-		} else {
-			b.WriteString(optIpcValue)
-		}
+		b.WriteString(strconv.Itoa(int(*o.ListenPort)))
 		b.WriteString("\n")
 	}
+
+	// Address is not passed as an IPC param.
 
 	return nil
 }
@@ -209,10 +244,11 @@ func (o *Interface) ipcString(b *bytes.Buffer) error {
 // See also:
 //   - https://github.com/pirate/wireguard-docs?tab=readme-ov-file#peer
 type Peer struct {
-	PublicKey  *device.NoisePublicKey
-	Endpoint   *AddrPort
-	AllowedIPs []netip.Prefix
-	Others     []*ini.Param
+	PublicKey           *device.NoisePublicKey
+	Endpoint            *AddrPort
+	AllowedIPs          []netip.Prefix
+	PersistentKeepalive *uint64
+	Others              []*ini.Param
 }
 
 // AddParam partly implements the ini.SectionSchema interface.
@@ -255,6 +291,13 @@ func (o *Peer) AddParam(p *ini.Param) error {
 				allowedIP)
 
 		}
+	case "PersistentKeepalive":
+		i, err := strconv.ParseUint(p.Value, 10, 64)
+		if err != nil {
+			return err
+		}
+
+		o.PersistentKeepalive = &i
 	default:
 		o.Others = append(o.Others, p)
 	}
@@ -269,6 +312,31 @@ func (o *Peer) Validate() error {
 	}
 
 	return nil
+}
+
+func (o *Peer) string(b *bytes.Buffer) {
+	b.WriteString("[Peer]\n")
+	b.WriteString("PublicKey = ")
+	b.WriteString(base64.StdEncoding.EncodeToString(o.PublicKey[:]))
+	b.WriteString("\n")
+
+	if o.Endpoint != nil {
+		b.WriteString("Endpoint = ")
+		b.WriteString(o.Endpoint.String())
+		b.WriteString("\n")
+	}
+
+	for _, allowed := range o.AllowedIPs {
+		b.WriteString("AllowedIPs = ")
+		b.WriteString(allowed.String())
+		b.WriteString("\n")
+	}
+
+	if o.PersistentKeepalive != nil {
+		b.WriteString("PersistentKeepalive = ")
+		b.WriteString(strconv.Itoa(int(*o.PersistentKeepalive)))
+		b.WriteString("\n")
+	}
 }
 
 func (o *Peer) ipcString(b *bytes.Buffer) error {
@@ -294,27 +362,10 @@ func (o *Peer) ipcString(b *bytes.Buffer) error {
 		}
 	}
 
-	for _, param := range o.Others {
-		var ipcParamName string
-		var optIpcValue string
-
-		switch param.Name {
-		case "PersistentKeepalive":
-			ipcParamName = "persistent_keepalive_interval"
-		}
-
-		if ipcParamName == "" {
-			return fmt.Errorf("no known ipc param for Peer param: %q",
-				param)
-		}
-
-		b.WriteString(ipcParamName)
+	if o.PersistentKeepalive != nil {
+		b.WriteString("persistent_keepalive_interval")
 		b.WriteString("=")
-		if optIpcValue == "" {
-			b.WriteString(param.Value)
-		} else {
-			b.WriteString(optIpcValue)
-		}
+		b.WriteString(strconv.Itoa(int(*o.PersistentKeepalive)))
 		b.WriteString("\n")
 	}
 
