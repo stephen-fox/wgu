@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -37,43 +36,51 @@ type Config struct {
 	Others    []*ini.Section
 }
 
-// GlobalParam partly implements the ini.Schema interface.
-func (o *Config) GlobalParam(*ini.Param) error {
-	return errors.New("global parameters are not supported")
+// ParserRules partly implements the ini.Schema interface.
+func (o *Config) ParserRules() ini.ParserRules {
+	return ini.ParserRules{
+		RequiredSections: map[string]struct{}{
+			"Interface": {},
+			"Peer":      {},
+		},
+	}
 }
 
-// StartSection partly implements the ini.Schema interface.
-func (o *Config) StartSection(name string) (ini.SectionSchema, error) {
+// GlobalParamSchema partly implements the ini.Schema interface.
+func (o *Config) GlobalParamSchema(paramName string) (func(*ini.Param) error, ini.SchemaRule) {
+	return nil, ini.SchemaRule{}
+}
+
+// SectionSchema partly implements the ini.Schema interface.
+func (o *Config) SectionSchema(name string) (func(string) (ini.SectionSchema, error), ini.SchemaRule) {
 	switch name {
 	case "Interface":
-		if o.Interface != nil {
-			return nil, errors.New("only one Interface section is permitted")
-		}
+		return func(string) (ini.SectionSchema, error) {
+			o.Interface = &Interface{}
 
-		o.Interface = &Interface{}
-
-		return o.Interface, nil
+			return o.Interface, nil
+		}, ini.SchemaRule{Limit: 1}
 	case "Peer":
-		peer := &Peer{}
+		return func(string) (ini.SectionSchema, error) {
+			peer := &Peer{}
 
-		o.Peers = append(o.Peers, peer)
+			o.Peers = append(o.Peers, peer)
 
-		return peer, nil
+			return peer, nil
+		}, ini.SchemaRule{}
 	default:
-		other := &ini.Section{Name: name}
+		return func(string) (ini.SectionSchema, error) {
+			other := &ini.Section{Name: name}
 
-		o.Others = append(o.Others, other)
+			o.Others = append(o.Others, other)
 
-		return other, nil
+			return other, nil
+		}, ini.SchemaRule{}
 	}
 }
 
 // Validate partly implements the ini.Schema interface.
 func (o *Config) Validate() error {
-	if len(o.Peers) == 0 {
-		return errors.New("no Peer sections were defined")
-	}
-
 	return nil
 }
 
@@ -130,69 +137,78 @@ type Interface struct {
 	Others     []*ini.Param
 }
 
-// AddParam partly implements the ini.SectionSchema interface.
-func (o *Interface) AddParam(p *ini.Param) error {
-	switch p.Name {
-	case "PrivateKey":
-		if o.PrivateKey != nil {
-			return errors.New("PrivateKey is already set")
-		}
-
-		privateKey, err := parsePrivateKey(p.Value)
-		if err != nil {
-			return err
-		}
-
-		o.PrivateKey = privateKey
-		o.PublicKey = wgkeys.NoisePublicKeyFromPrivate(privateKey)
-	case "ListenPort":
-		i, err := strconv.ParseUint(p.Value, 10, 16)
-		if err != nil {
-			return err
-		}
-
-		tmp := uint16(i)
-
-		o.ListenPort = &tmp
-	case "Address":
-		if o.Address != nil {
-			return errors.New("Address is already set")
-		}
-
-		prefix, err := netip.ParsePrefix(p.Value)
-		if err != nil {
-			return err
-		}
-
-		o.Address = &prefix
-	case "MTU":
-		if o.MTU != nil {
-			return errors.New("MTU is already set")
-		}
-
-		mtu, err := strconv.Atoi(p.Value)
-		if err != nil {
-			return fmt.Errorf("failed to parse mtu as an int - %w", err)
-		}
-
-		if mtu <= 0 {
-			return fmt.Errorf("mtu is less than or equal to zero (%d)", mtu)
-		}
-
-		o.MTU = &mtu
-	default:
-		o.Others = append(o.Others, p)
+// RequiredParams partly implements the ini.SectionSchema interface.
+func (o *Interface) RequiredParams() map[string]struct{} {
+	return map[string]struct{}{
+		"PrivateKey": {},
 	}
+}
 
-	return nil
+// ParamSchema partly implements the ini.SectionSchema interface.
+func (o *Interface) ParamSchema(paramName string) (func(*ini.Param) error, ini.SchemaRule) {
+	switch paramName {
+	case "PrivateKey":
+		return func(p *ini.Param) error {
+			privateKey, err := parsePrivateKey(p.Value)
+			if err != nil {
+				return err
+			}
+
+			o.PrivateKey = privateKey
+			o.PublicKey = wgkeys.NoisePublicKeyFromPrivate(privateKey)
+
+			return nil
+		}, ini.SchemaRule{Limit: 1}
+	case "ListenPort":
+		return func(p *ini.Param) error {
+			i, err := strconv.ParseUint(p.Value, 10, 16)
+			if err != nil {
+				return err
+			}
+
+			tmp := uint16(i)
+
+			o.ListenPort = &tmp
+
+			return nil
+		}, ini.SchemaRule{Limit: 1}
+	case "Address":
+		return func(p *ini.Param) error {
+			prefix, err := netip.ParsePrefix(p.Value)
+			if err != nil {
+				return err
+			}
+
+			o.Address = &prefix
+
+			return nil
+		}, ini.SchemaRule{Limit: 1}
+	case "MTU":
+		return func(p *ini.Param) error {
+			mtu, err := strconv.Atoi(p.Value)
+			if err != nil {
+				return fmt.Errorf("failed to parse mtu as an int - %w", err)
+			}
+
+			if mtu <= 0 {
+				return fmt.Errorf("mtu is less than or equal to zero (%d)", mtu)
+			}
+
+			o.MTU = &mtu
+
+			return nil
+		}, ini.SchemaRule{Limit: 1}
+	default:
+		return func(p *ini.Param) error {
+			o.Others = append(o.Others, p)
+
+			return nil
+		}, ini.SchemaRule{}
+	}
 }
 
 // Validate partly implements the ini.SectionSchema interface.
 func (o *Interface) Validate() error {
-	if o.PrivateKey == nil {
-		return errors.New("missing PrivateKey param")
-	}
-
 	return nil
 }
 
@@ -251,66 +267,79 @@ type Peer struct {
 	Others              []*ini.Param
 }
 
+// RequiredParams partly implements the ini.SectionSchema interface.
+func (o *Peer) RequiredParams() map[string]struct{} {
+	return map[string]struct{}{
+		"PublicKey": {},
+	}
+}
+
 // AddParam partly implements the ini.SectionSchema interface.
-func (o *Peer) AddParam(p *ini.Param) error {
-	switch p.Name {
+func (o *Peer) ParamSchema(paramName string) (func(*ini.Param) error, ini.SchemaRule) {
+	switch paramName {
 	case "PublicKey":
-		if o.PublicKey != nil {
-			return errors.New("PublicKey is already set")
-		}
-
-		publicKey, err := wgkeys.NoisePublicKeyFromBase64(p.Value)
-		if err != nil {
-			return err
-		}
-
-		o.PublicKey = publicKey
-	case "Endpoint":
-		if o.Endpoint != nil {
-			return errors.New("Endpoint is already set")
-		}
-
-		addrPort, err := addrPortFromString(p.Value)
-		if err != nil {
-			return fmt.Errorf("failed to parse address and port - %w", err)
-		}
-
-		o.Endpoint = &addrPort
-	case "AllowedIPs":
-		prefixStrs := strings.Split(p.Value, ",")
-
-		for _, str := range prefixStrs {
-			allowedIP, err := netip.ParsePrefix(str)
+		return func(p *ini.Param) error {
+			publicKey, err := wgkeys.NoisePublicKeyFromBase64(p.Value)
 			if err != nil {
-				return fmt.Errorf("failed to parse cidr: %q - %w",
-					str, err)
+				return err
 			}
 
-			o.AllowedIPs = append(
-				o.AllowedIPs,
-				allowedIP)
+			o.PublicKey = publicKey
 
-		}
+			return nil
+		}, ini.SchemaRule{Limit: 1}
+	case "Endpoint":
+		return func(p *ini.Param) error {
+			addrPort, err := addrPortFromString(p.Value)
+			if err != nil {
+				return fmt.Errorf("failed to parse address and port - %w", err)
+			}
+
+			o.Endpoint = &addrPort
+
+			return nil
+		}, ini.SchemaRule{Limit: 1}
+	case "AllowedIPs":
+		return func(p *ini.Param) error {
+			prefixStrs := strings.Split(p.Value, ",")
+
+			for _, str := range prefixStrs {
+				allowedIP, err := netip.ParsePrefix(str)
+				if err != nil {
+					return fmt.Errorf("failed to parse cidr: %q - %w",
+						str, err)
+				}
+
+				o.AllowedIPs = append(
+					o.AllowedIPs,
+					allowedIP)
+
+			}
+
+			return nil
+		}, ini.SchemaRule{}
 	case "PersistentKeepalive":
-		i, err := strconv.ParseUint(p.Value, 10, 64)
-		if err != nil {
-			return err
-		}
+		return func(p *ini.Param) error {
+			i, err := strconv.ParseUint(p.Value, 10, 64)
+			if err != nil {
+				return err
+			}
 
-		o.PersistentKeepalive = &i
+			o.PersistentKeepalive = &i
+
+			return nil
+		}, ini.SchemaRule{Limit: 1}
 	default:
-		o.Others = append(o.Others, p)
-	}
+		return func(p *ini.Param) error {
+			o.Others = append(o.Others, p)
 
-	return nil
+			return nil
+		}, ini.SchemaRule{}
+	}
 }
 
 // Validate partly implements the ini.SectionSchema interface.
 func (o *Peer) Validate() error {
-	if o.PublicKey == nil {
-		return errors.New("missing PublicKey param")
-	}
-
 	return nil
 }
 

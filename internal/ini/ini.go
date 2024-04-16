@@ -45,20 +45,37 @@ type INI struct {
 	Sections []*Section
 }
 
-// GlobalParam partly implements the Schema interface.
-func (o *INI) GlobalParam(p *Param) error {
-	o.Globals = append(o.Globals, p)
-
-	return nil
+// ParserRules partly implements the Schema interface.
+func (o *INI) ParserRules() ParserRules {
+	return ParserRules{
+		AllowGlobalParams: true,
+	}
 }
 
-// StartSection partly implements the Schema interface.
-func (o *INI) StartSection(name string) (SectionSchema, error) {
-	section := &Section{Name: name}
+// GlobalParamSchema partly implements the Schema interface.
+func (o *INI) GlobalParamSchema(paramName string) (func(*Param) error, SchemaRule) {
+	fn := func(p *Param) error {
+		o.Globals = append(o.Globals, p)
 
-	o.Sections = append(o.Sections, section)
+		return nil
+	}
 
-	return section, nil
+	return fn, SchemaRule{}
+}
+
+// SectionSchema partly implements the Schema interface.
+func (o *INI) SectionSchema(sectionName string) (func(string) (SectionSchema, error), SchemaRule) {
+	fn := func(name string) (SectionSchema, error) {
+		s := &Section{
+			Name: sectionName,
+		}
+
+		o.Sections = append(o.Sections, s)
+
+		return s, nil
+	}
+
+	return fn, SchemaRule{}
 }
 
 // Validate partly implements the Schema interface.
@@ -142,13 +159,18 @@ type Section struct {
 	Params []*Param
 }
 
-// AddParam adds the provided parameter to the Section.
-//
-// It partly implements the SectionSchema interface.
-func (o *Section) AddParam(p *Param) error {
-	o.Params = append(o.Params, p)
-
+func (o *Section) RequiredParams() map[string]struct{} {
 	return nil
+}
+
+func (o *Section) ParamSchema(paramName string) (func(*Param) error, SchemaRule) {
+	fn := func(p *Param) error {
+		o.Params = append(o.Params, p)
+
+		return nil
+	}
+
+	return fn, SchemaRule{}
 }
 
 // Validate partly implements the SectionSchema interface.
@@ -243,4 +265,10 @@ func (o *Section) SetOrAddFirstParam(paramName string, value string) error {
 type Param struct {
 	Name  string
 	Value string
+}
+
+func (o *Param) Set(value string) error {
+	o.Value = value
+
+	return nil
 }
