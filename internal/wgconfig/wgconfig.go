@@ -36,8 +36,8 @@ type Config struct {
 	Others    []*ini.Section
 }
 
-// ParserRules partly implements the ini.Schema interface.
-func (o *Config) ParserRules() ini.ParserRules {
+// Rules partly implements the ini.Schema interface.
+func (o *Config) Rules() ini.ParserRules {
 	return ini.ParserRules{
 		RequiredSections: map[string]struct{}{
 			"Interface": {},
@@ -46,13 +46,13 @@ func (o *Config) ParserRules() ini.ParserRules {
 	}
 }
 
-// GlobalParamSchema partly implements the ini.Schema interface.
-func (o *Config) GlobalParamSchema(paramName string) (func(*ini.Param) error, ini.SchemaRule) {
+// OnGlobalParam partly implements the ini.Schema interface.
+func (o *Config) OnGlobalParam(paramName string) (func(*ini.Param) error, ini.SchemaRule) {
 	return nil, ini.SchemaRule{}
 }
 
-// SectionSchema partly implements the ini.Schema interface.
-func (o *Config) SectionSchema(name string) (func(string) (ini.SectionSchema, error), ini.SchemaRule) {
+// OnSection partly implements the ini.Schema interface.
+func (o *Config) OnSection(name string) (func(string) (ini.SectionSchema, error), ini.SchemaRule) {
 	switch name {
 	case "Interface":
 		return func(string) (ini.SectionSchema, error) {
@@ -144,8 +144,8 @@ func (o *Interface) RequiredParams() map[string]struct{} {
 	}
 }
 
-// ParamSchema partly implements the ini.SectionSchema interface.
-func (o *Interface) ParamSchema(paramName string) (func(*ini.Param) error, ini.SchemaRule) {
+// OnParam partly implements the ini.SectionSchema interface.
+func (o *Interface) OnParam(paramName string) (func(*ini.Param) error, ini.SchemaRule) {
 	switch paramName {
 	case "PrivateKey":
 		return func(p *ini.Param) error {
@@ -274,8 +274,8 @@ func (o *Peer) RequiredParams() map[string]struct{} {
 	}
 }
 
-// AddParam partly implements the ini.SectionSchema interface.
-func (o *Peer) ParamSchema(paramName string) (func(*ini.Param) error, ini.SchemaRule) {
+// OnParam partly implements the ini.SectionSchema interface.
+func (o *Peer) OnParam(paramName string) (func(*ini.Param) error, ini.SchemaRule) {
 	switch paramName {
 	case "PublicKey":
 		return func(p *ini.Param) error {

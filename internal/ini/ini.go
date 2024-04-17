@@ -46,14 +46,14 @@ type INI struct {
 }
 
 // ParserRules partly implements the Schema interface.
-func (o *INI) ParserRules() ParserRules {
+func (o *INI) Rules() ParserRules {
 	return ParserRules{
 		AllowGlobalParams: true,
 	}
 }
 
 // GlobalParamSchema partly implements the Schema interface.
-func (o *INI) GlobalParamSchema(paramName string) (func(*Param) error, SchemaRule) {
+func (o *INI) OnGlobalParam(paramName string) (func(*Param) error, SchemaRule) {
 	fn := func(p *Param) error {
 		o.Globals = append(o.Globals, p)
 
@@ -64,7 +64,7 @@ func (o *INI) GlobalParamSchema(paramName string) (func(*Param) error, SchemaRul
 }
 
 // SectionSchema partly implements the Schema interface.
-func (o *INI) SectionSchema(sectionName string) (func(string) (SectionSchema, error), SchemaRule) {
+func (o *INI) OnSection(sectionName string) (func(string) (SectionSchema, error), SchemaRule) {
 	fn := func(name string) (SectionSchema, error) {
 		s := &Section{
 			Name: sectionName,
@@ -163,7 +163,7 @@ func (o *Section) RequiredParams() map[string]struct{} {
 	return nil
 }
 
-func (o *Section) ParamSchema(paramName string) (func(*Param) error, SchemaRule) {
+func (o *Section) OnParam(paramName string) (func(*Param) error, SchemaRule) {
 	fn := func(p *Param) error {
 		o.Params = append(o.Params, p)
 
