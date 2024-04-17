@@ -232,6 +232,14 @@ func (o *parser) parse(r io.Reader) error {
 		return err
 	}
 
+	// This is needed because the final section will not
+	// fall down the code path leading to the validation
+	// function.
+	err = o.validateCurrentSection()
+	if err != nil {
+		return err
+	}
+
 	for required := range o.rules.RequiredSections {
 		_, hasIt := o.seenSections[required]
 		if !hasIt {
