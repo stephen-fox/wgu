@@ -64,8 +64,8 @@ func (o *INI) OnGlobalParam(paramName string) (func(*Param) error, SchemaRule) {
 }
 
 // SectionSchema partly implements the Schema interface.
-func (o *INI) OnSection(sectionName string) (func(string) (SectionSchema, error), SchemaRule) {
-	fn := func(name string) (SectionSchema, error) {
+func (o *INI) OnSection(sectionName string, _ string) (func() (SectionSchema, error), SchemaRule) {
+	fn := func() (SectionSchema, error) {
 		s := &Section{
 			Name: sectionName,
 		}

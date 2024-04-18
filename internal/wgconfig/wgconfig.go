@@ -52,16 +52,16 @@ func (o *Config) OnGlobalParam(paramName string) (func(*ini.Param) error, ini.Sc
 }
 
 // OnSection partly implements the ini.Schema interface.
-func (o *Config) OnSection(name string) (func(string) (ini.SectionSchema, error), ini.SchemaRule) {
+func (o *Config) OnSection(name string, _ string) (func() (ini.SectionSchema, error), ini.SchemaRule) {
 	switch name {
 	case "Interface":
-		return func(string) (ini.SectionSchema, error) {
+		return func() (ini.SectionSchema, error) {
 			o.Interface = &Interface{}
 
 			return o.Interface, nil
 		}, ini.SchemaRule{Limit: 1}
 	case "Peer":
-		return func(string) (ini.SectionSchema, error) {
+		return func() (ini.SectionSchema, error) {
 			peer := &Peer{}
 
 			o.Peers = append(o.Peers, peer)
@@ -69,7 +69,7 @@ func (o *Config) OnSection(name string) (func(string) (ini.SectionSchema, error)
 			return peer, nil
 		}, ini.SchemaRule{}
 	default:
-		return func(string) (ini.SectionSchema, error) {
+		return func() (ini.SectionSchema, error) {
 			other := &ini.Section{Name: name}
 
 			o.Others = append(o.Others, other)

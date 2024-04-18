@@ -31,6 +31,10 @@ type Schema interface {
 	OnGlobalParam(paramName string) (func(*Param) error, SchemaRule)
 
 	// OnSection is called when the parser encounters a section.
+	// It recieves the section name (as defined by the ParserRules)
+	// and the unmodified "canoncial" section name (as it appears
+	// in the section header).
+	//
 	// If the section is known, a non-nil function pointer
 	// should be returned which constructs a new SectionSchema.
 	//
@@ -40,7 +44,7 @@ type Schema interface {
 	// A nil function pointer indicates that the section
 	// is unknown, which is then handled by the rules
 	// specified by ParserRules.
-	OnSection(sectionName string) (func(name string) (SectionSchema, error), SchemaRule)
+	OnSection(sectionName string, canconicalName string) (func() (SectionSchema, error), SchemaRule)
 
 	// Validate is called by the parser when the
 	// parser finishes parsing the INI blob.
@@ -272,7 +276,7 @@ func (o *parser) startSection(withoutSpaces []byte) error {
 		return err
 	}
 
-	newSectionFn, rule := o.schema.OnSection(mangledName)
+	newSectionFn, rule := o.schema.OnSection(mangledName, name)
 	if newSectionFn == nil {
 		if o.rules.AllowUnknownSections {
 			o.currSectionObj = nil
@@ -294,7 +298,7 @@ func (o *parser) startSection(withoutSpaces []byte) error {
 			o.line, rule.Limit, name, numInstances)
 	}
 
-	o.currSectionObj, err = newSectionFn(name)
+	o.currSectionObj, err = newSectionFn()
 	if err != nil {
 		return fmt.Errorf("line %d - failed to initialize section object: %q - %w",
 			o.line, name, err)
