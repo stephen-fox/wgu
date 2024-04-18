@@ -159,7 +159,7 @@ type Section struct {
 	Params []*Param
 }
 
-func (o *Section) RequiredParams() map[string]struct{} {
+func (o *Section) RequiredParams() []string {
 	return nil
 }
 

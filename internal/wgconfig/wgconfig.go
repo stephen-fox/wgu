@@ -39,9 +39,9 @@ type Config struct {
 // Rules partly implements the ini.Schema interface.
 func (o *Config) Rules() ini.ParserRules {
 	return ini.ParserRules{
-		RequiredSections: map[string]struct{}{
-			"Interface": {},
-			"Peer":      {},
+		RequiredSections: []string{
+			"Interface",
+			"Peer",
 		},
 	}
 }
@@ -138,9 +138,9 @@ type Interface struct {
 }
 
 // RequiredParams partly implements the ini.SectionSchema interface.
-func (o *Interface) RequiredParams() map[string]struct{} {
-	return map[string]struct{}{
-		"PrivateKey": {},
+func (o *Interface) RequiredParams() []string {
+	return []string{
+		"PrivateKey",
 	}
 }
 
@@ -268,9 +268,9 @@ type Peer struct {
 }
 
 // RequiredParams partly implements the ini.SectionSchema interface.
-func (o *Peer) RequiredParams() map[string]struct{} {
-	return map[string]struct{}{
-		"PublicKey": {},
+func (o *Peer) RequiredParams() []string {
+	return []string{
+		"PublicKey",
 	}
 }
 

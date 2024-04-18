@@ -78,15 +78,15 @@ type ParserRules struct {
 	// RequiredGlobalParams contains the required
 	// global parameters (if any).
 	//
-	// A nil map means no global parameters
+	// A nil slice means no global parameters
 	// are required.
-	RequiredGlobalParams map[string]struct{}
+	RequiredGlobalParams []string
 
 	// RequiredSections contains the required
 	// sections (if any).
 	//
-	// A nil map means no sections are required.
-	RequiredSections map[string]struct{}
+	// A nil slice means no sections are required.
+	RequiredSections []string
 }
 
 // SchemaRule configures individual schema requirements.
@@ -107,7 +107,7 @@ type SectionSchema interface {
 	// (if any).
 	//
 	// nil can be returned if no parameters are required.
-	RequiredParams() map[string]struct{}
+	RequiredParams() []string
 
 	// OnParam returns a constructor function pointer
 	// and SchemaRule for the named parameter.
@@ -185,7 +185,7 @@ func (o *parser) parse(r io.Reader) error {
 		if withoutSpaces[0] == '[' {
 			if len(o.seenSections) == 0 {
 				// Global params finished.
-				for required := range o.rules.RequiredGlobalParams {
+				for _, required := range o.rules.RequiredGlobalParams {
 					_, hasIt := o.seenGlobals[required]
 					if !hasIt {
 						return fmt.Errorf("missing required global param: %q",
@@ -240,7 +240,7 @@ func (o *parser) parse(r io.Reader) error {
 		return err
 	}
 
-	for required := range o.rules.RequiredSections {
+	for _, required := range o.rules.RequiredSections {
 		_, hasIt := o.seenSections[required]
 		if !hasIt {
 			return fmt.Errorf("missing required section: %q", required)
@@ -381,7 +381,7 @@ func (o *parser) validateCurrentSection() error {
 		return nil
 	}
 
-	for required := range o.currSectionObj.RequiredParams() {
+	for _, required := range o.currSectionObj.RequiredParams() {
 		_, hasIt := o.seenCurrSectionParams[required]
 		if !hasIt {
 			return fmt.Errorf("line %d - section %q is missing required param: %q",
