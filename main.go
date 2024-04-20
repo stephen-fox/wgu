@@ -170,6 +170,25 @@ func mainWithError() error {
 			cfg.Interface.PublicKey[:]) + "\n")
 
 		return nil
+	case "pubkey-addr":
+		publicKeyRaw, err := io.ReadAll(base64.NewDecoder(base64.StdEncoding, os.Stdin))
+		if err != nil {
+			return err
+		}
+
+		publicKey, err := wgkeys.NoisePublicKeyFromBytes(publicKeyRaw)
+		if err != nil {
+			return err
+		}
+
+		addr, err := publicKeyToV6Addr(publicKey[:])
+		if err != nil {
+			return err
+		}
+
+		os.Stdout.WriteString(addr.String() + "\n")
+
+		return nil
 	}
 
 	if !*noTimeStamps {
