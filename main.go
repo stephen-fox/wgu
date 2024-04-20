@@ -32,23 +32,28 @@ const (
 	usage = appName + `
 
 SYNOPSIS
+TODO
 
 DESCRIPTION
+TODO
 
 FORWARDING SPECIFICATION
   Port forwards can be specified using the following specification format:
 
-    listen-address:port->dial-address:port
+    <net-type> listen-address:port -> <net-type> dial-address:port
 
   For example, the following specification forwards connections to
   127.0.0.1:22 on the host machine to a WireGuard peer who has the
   virtual address of 10.0.0.1:
 
-    127.0.0.1:22->10.0.0.1:22
+    host 127.0.0.1:22 -> tun 10.0.0.1:22
 
-  The addresses are checked against the IP address of the virtual WireGuard
-  interface and a series of magic strings.
+NETWORK TYPES
 
+  - host - The host computer's networking stack is used
+  - tun  - The WireGuard networking stack is used
+
+MAGIC STRINGS
   The "listen-address" and "dial-address" values can be replaced with
   magic strings that are expanded to the corresponding address.
   Note: Strings marked with "*" are only expanded in automatic address
@@ -275,7 +280,7 @@ func mainWithError() error {
 		}
 
 		err = replaceWgAddrShortcuts(replaceWgAddrShortcutsArgs{
-			addr:               &forward.rAddr.addr,
+			addr:               &forward.dAddr.addr,
 			ourWgAddr:          ourWgAddrStr,
 			isAutoAddrPlanning: *autoAddrPlanning,
 			optAutoPeers:       optAutoPeers,
@@ -342,29 +347,35 @@ func mainWithError() error {
 				fwdStr, err)
 		}
 
-		rAddr, err := fwd.rAddr.toAddrPort()
+		rAddr, err := fwd.dAddr.toAddrPort()
 		if err != nil {
 			return fmt.Errorf("failed to parse dial addr port for %q - %w",
 				fwdStr, err)
 		}
 
-		lNet := netOpForAddr(netOpForAddrArgs{
-			addr:         lAddr,
-			ourWgAddr:    cfg.Interface.Address.Addr(),
-			localNetOp:   localNetOp,
-			tunnelNetOp:  tunnelNetOp,
-			optAutoPeers: optAutoPeers,
-		})
+		var listenNet netOp
+		switch fwd.lNet {
+		case hostNetType:
+			listenNet = localNetOp
+		case tunNetType:
+			listenNet = tunnelNetOp
+		default:
+			return fmt.Errorf("unsupported listen net type: %q", fwd.lNet)
+		}
 
-		rNet := netOpForAddr(netOpForAddrArgs{
-			addr:         rAddr,
-			ourWgAddr:    cfg.Interface.Address.Addr(),
-			localNetOp:   localNetOp,
-			tunnelNetOp:  tunnelNetOp,
-			optAutoPeers: optAutoPeers,
-		})
+		var dialNet netOp
+		switch fwd.dNet {
+		case hostNetType:
+			dialNet = localNetOp
+		case tunNetType:
+			dialNet = tunnelNetOp
+		default:
+			return fmt.Errorf("unsupported dial net type: %q", fwd.lNet)
+		}
 
-		err = forward(ctx, &waitGroup, fwd.proto, lNet, lAddr.String(), rNet, rAddr.String())
+		log.Printf("TODO: %q - %+v", fwdStr, fwd)
+
+		err = forward(ctx, &waitGroup, fwd.proto, listenNet, lAddr.String(), dialNet, rAddr.String())
 		if err != nil {
 			return fmt.Errorf("error forwarding %+v: %s", fwd, err)
 		}
@@ -623,41 +634,71 @@ func (o *forwardFlag) Set(fwd string) error {
 }
 
 func parseForwardingConfig(transport string, fwd string) (*forwardConfig, error) {
-	components := strings.Split(fwd, "->")
-
-	numArrows := len(components)
-	if numArrows <= 1 {
+	listenSide, dialSide, hasIt := strings.Cut(fwd, "->")
+	if !hasIt {
 		return nil, errors.New("missing '->'")
 	}
 
-	if numArrows > 2 {
-		return nil, errors.New("contains more than one '->'")
-	}
-
-	listenAddr, err := strToAddrAndPort(components[0])
+	lnet, listenAddr, err := parseForwardSideStr(listenSide)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse listen address %q - %w",
-			components[0], err)
+		return nil, fmt.Errorf("failed to parse listen spec %q - %w",
+			listenSide, err)
 	}
 
-	dialAddr, err := strToAddrAndPort(components[1])
+	dnet, dialAddr, err := parseForwardSideStr(dialSide)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse dial address %q - %w",
-			components[1], err)
+			dialSide, err)
 	}
 
 	return &forwardConfig{
 		proto: transport,
+		lNet:  lnet,
 		lAddr: listenAddr,
-		rAddr: dialAddr,
+		dNet:  dnet,
+		dAddr: dialAddr,
 	}, nil
+}
+
+func parseForwardSideStr(str string) (netType, addrPort, error) {
+	fields := strings.Fields(strings.TrimSpace(str))
+
+	if len(fields) != 2 {
+		return unknownNetType, addrPort{}, errors.New("format should be: <net-type> <address>")
+	}
+
+	var netT netType
+	switch fields[0] {
+	case "host", "tun":
+		netT = netType(fields[0])
+	default:
+		return unknownNetType, addrPort{}, fmt.Errorf("unknown network type: %q", fields[0])
+	}
+
+	addr, err := strToAddrAndPort(fields[1])
+	if err != nil {
+		return unknownNetType, addrPort{}, fmt.Errorf("failed to parse address %q - %w",
+			fields[1], err)
+	}
+
+	return netT, addr, nil
 }
 
 type forwardConfig struct {
 	proto string
+	lNet  netType
 	lAddr addrPort
-	rAddr addrPort
+	dNet  netType
+	dAddr addrPort
 }
+
+type netType string
+
+const (
+	unknownNetType netType = ""
+	hostNetType    netType = "host"
+	tunNetType     netType = "tun"
+)
 
 func strToAddrAndPort(str string) (addrPort, error) {
 	host, portStr, err := net.SplitHostPort(str)
@@ -835,28 +876,42 @@ func peerDNSResolution(ctx context.Context, cfg *wgconfig.Config) error {
 	return nil
 }
 
-type netOpForAddrArgs struct {
-	addr         netip.AddrPort
-	ourWgAddr    netip.Addr
-	localNetOp   netOp
-	tunnelNetOp  netOp
-	optAutoPeers []autoPeer
-}
-
-func netOpForAddr(args netOpForAddrArgs) netOp {
-	if args.addr.Addr() == args.ourWgAddr {
-		return args.tunnelNetOp
+func isLocalAddr(addr netip.Addr) (bool, error) {
+	ifs, err := net.Interfaces()
+	if err != nil {
+		return false, err
 	}
 
-	if len(args.optAutoPeers) == 0 {
-		return args.localNetOp
-	}
+	for _, iface := range ifs {
+		hasIt, err := ifaceHasAddr(iface, addr)
+		if err != nil {
+			return false, err
+		}
 
-	for _, peer := range args.optAutoPeers {
-		if peer.addr == args.addr.Addr() {
-			return args.tunnelNetOp
+		if hasIt {
+			return true, nil
 		}
 	}
 
-	return args.localNetOp
+	return false, nil
+}
+
+func ifaceHasAddr(iface net.Interface, addr netip.Addr) (bool, error) {
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return false, err
+	}
+
+	for _, ifAddrStr := range addrs {
+		ifAddr, err := netip.ParseAddr(ifAddrStr.String())
+		if err != nil {
+			return false, err
+		}
+
+		if ifAddr == addr {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
