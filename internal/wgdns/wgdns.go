@@ -128,6 +128,8 @@ func (o *PeerMonitor) loopWithError(ctx context.Context) error {
 
 			doLookup.Reset(10 * time.Minute)
 			lastResolvedAddr = currentAddr
+
+			o.logger.Printf("new address is: %q", currentAddr)
 		}
 	}
 }
