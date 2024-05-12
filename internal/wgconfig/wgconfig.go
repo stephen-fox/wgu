@@ -304,6 +304,8 @@ func (o *Peer) OnParam(paramName string) (func(*ini.Param) error, ini.SchemaRule
 			prefixStrs := strings.Split(p.Value, ",")
 
 			for _, str := range prefixStrs {
+				str = strings.TrimSpace(str)
+
 				allowedIP, err := netip.ParsePrefix(str)
 				if err != nil {
 					return fmt.Errorf("failed to parse cidr: %q - %w",
