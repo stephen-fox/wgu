@@ -15,6 +15,9 @@ import (
 // MonitorPeers calls MonitorPeer for each WireGuard peer whose endpoint
 // is a DNS name, skipping peers that have an IP address endpoint.
 //
+// When a PeerMonitor exits, it will write an error explaining the
+// failure to the errs channel.
+//
 // Refer to MonitorPeer for more information.
 func MonitorPeers(ctx context.Context, peers []*wgconfig.Peer, device *device.Device, errs chan<- error, logger *log.Logger) {
 	for _, peer := range peers {
@@ -40,9 +43,6 @@ func MonitorPeers(ctx context.Context, peers []*wgconfig.Peer, device *device.De
 // and monitors its DNS name for changes. It automatically updates
 // the WireGuard device configuration each time the DNS record
 // is updated.
-//
-// The Go routine will add the peer in its entirety.
-// If the peer has not been previously added to the WireGuard device,
 func MonitorPeer(ctx context.Context, config *wgconfig.Peer, device *device.Device, logger *log.Logger) *PeerMonitor {
 	name := config.Endpoint.Host()
 
