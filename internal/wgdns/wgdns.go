@@ -94,6 +94,12 @@ func (o *PeerMonitor) loopWithError(ctx context.Context) error {
 				continue
 			}
 
+			if len(addrs) == 0 {
+				doLookup.Reset(time.Minute)
+				o.logger.Printf("failed to resolve %q - it has no addresses", hostname)
+				continue
+			}
+
 			// TODO: Doesn't seem like wireguard supports multiple endpoints.
 			//  For now we will just use the first address.
 			currentAddr := addrs[0]
