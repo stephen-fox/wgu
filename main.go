@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"gitlab.com/stephen-fox/wgu/internal/wgconfig"
+	"gitlab.com/stephen-fox/wgu/internal/wgdns"
 	"gitlab.com/stephen-fox/wgu/internal/wgkeys"
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
@@ -310,20 +311,11 @@ func mainWithError() error {
 		}
 	}
 
-	if err != nil {
-		return fmt.Errorf("failed to read mtu from config - %w", err)
-	}
-
 	ctx, cancelFn := signal.NotifyContext(context.Background(),
 		syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT)
 	defer cancelFn()
 
-	err = peerDNSResolution(ctx, cfg)
-	if err != nil {
-		return fmt.Errorf("failed to resolve peer endpoint hostnames - %w", err)
-	}
-
-	ipcConfig, err := cfg.IPCConfig()
+	ipcConfig, err := cfg.IPCConfigWithoutDnsPeers()
 	if err != nil {
 		return fmt.Errorf("failed to convert config to ipc format - %w", err)
 	}
@@ -354,6 +346,9 @@ func mainWithError() error {
 	defer dev.Down()
 
 	loggerInfo.Println("wg device up")
+
+	dnsMonitorErrs := make(chan error, 1)
+	wgdns.MonitorPeers(ctx, cfg.Peers, dev, dnsMonitorErrs, loggerInfo)
 
 	var waitGroup sync.WaitGroup
 	var localNetOp = &localNetOp{}
@@ -400,9 +395,13 @@ func mainWithError() error {
 		}
 	}
 
-	<-ctx.Done()
-	waitGroup.Wait()
-	return ctx.Err()
+	select {
+	case <-ctx.Done():
+		waitGroup.Wait()
+		return ctx.Err()
+	case err = <-dnsMonitorErrs:
+		return fmt.Errorf("failed to monitor peer's dns changes - %w", err)
+	}
 }
 
 type netOp interface {
@@ -861,38 +860,6 @@ func publicKeyToV6Addr(pub []byte) (netip.Addr, error) {
 	}
 
 	return addr, nil
-}
-
-// TODO: Think about putting in separate library.
-// TODO: Need to retry lookup if a transient failure occurs / restructure code.
-func peerDNSResolution(ctx context.Context, cfg *wgconfig.Config) error {
-	netResolver := net.Resolver{}
-
-	for _, peer := range cfg.Peers {
-		if peer.Endpoint == nil {
-			continue
-		}
-
-		_, isIP := peer.Endpoint.IsIP()
-		if isIP {
-			continue
-		}
-
-		addrs, err := netResolver.LookupHost(ctx, peer.Endpoint.Host())
-		if err != nil {
-			return fmt.Errorf("peer %q: failed to lookup %q - %w",
-				base64.StdEncoding.EncodeToString(peer.PublicKey[:]),
-				peer.Endpoint.Host(),
-				err)
-		}
-
-		// TODO: Doesn't seem like wireguard supports multiple endpoints.
-		//  For now we will just use the first address.
-		newAddrPort := wgconfig.AddrPortFrom(addrs[0], peer.Endpoint.Port())
-		peer.Endpoint = &newAddrPort
-	}
-
-	return nil
 }
 
 func isLocalAddr(addr netip.Addr) (bool, error) {

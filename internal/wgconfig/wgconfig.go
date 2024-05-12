@@ -114,7 +114,32 @@ func (o *Config) IPCConfig() (string, error) {
 	}
 
 	for _, peer := range o.Peers {
-		err := peer.ipcString(buf)
+		err := peer.IPCString(buf)
+		if err != nil {
+			return "", fmt.Errorf("failed to convert Peer section to ipc string - %w", err)
+		}
+	}
+
+	return buf.String(), nil
+}
+
+func (o *Config) IPCConfigWithoutDnsPeers() (string, error) {
+	buf := bytes.NewBuffer(nil)
+
+	err := o.Interface.ipcString(buf)
+	if err != nil {
+		return "", fmt.Errorf("failed to convert Interface section to ipc string - %w", err)
+	}
+
+	for _, peer := range o.Peers {
+		if peer.Endpoint != nil {
+			_, isIp := peer.Endpoint.IsIP()
+			if !isIp {
+				continue
+			}
+		}
+
+		err := peer.IPCString(buf)
 		if err != nil {
 			return "", fmt.Errorf("failed to convert Peer section to ipc string - %w", err)
 		}
@@ -370,7 +395,7 @@ func (o *Peer) string(b *bytes.Buffer) {
 	}
 }
 
-func (o *Peer) ipcString(b *bytes.Buffer) error {
+func (o *Peer) IPCString(b *bytes.Buffer) error {
 	// public_key must always be first.
 	b.WriteString("public_key")
 	b.WriteString("=")
