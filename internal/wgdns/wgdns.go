@@ -39,8 +39,10 @@ func MonitorPeer(ctx context.Context, config *wgconfig.Peer, device *device.Devi
 		config: config,
 		device: device,
 		name:   name,
-		logger: log.New(logger.Writer(), "[dns-peer-monitor "+name+"] ", logger.Flags()),
-		done:   make(chan struct{}),
+		logger: log.New(logger.Writer(),
+			logger.Prefix()+" [dns-peer-monitor "+name+"] ",
+			logger.Flags()),
+		done: make(chan struct{}),
 	}
 
 	go monitor.loop(ctx)
