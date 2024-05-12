@@ -12,6 +12,10 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 )
 
+// MonitorPeers calls MonitorPeer for each WireGuard peer whose endpoint
+// is a DNS name, skipping peers that have an IP address endpoint.
+//
+// Refer to MonitorPeer for more information.
 func MonitorPeers(ctx context.Context, peers []*wgconfig.Peer, device *device.Device, errs chan<- error, logger *log.Logger) {
 	for _, peer := range peers {
 		if peer.Endpoint == nil {
@@ -32,6 +36,13 @@ func MonitorPeers(ctx context.Context, peers []*wgconfig.Peer, device *device.De
 	}
 }
 
+// MonitorPeer starts a Go routine for the specified WireGuard peer
+// and monitors its DNS name for changes. It automatically updates
+// the WireGuard device configuration each time the DNS record
+// is updated.
+//
+// The Go routine will add the peer in its entirety.
+// If the peer has not been previously added to the WireGuard device,
 func MonitorPeer(ctx context.Context, config *wgconfig.Peer, device *device.Device, logger *log.Logger) *PeerMonitor {
 	name := config.Endpoint.Host()
 
@@ -50,6 +61,11 @@ func MonitorPeer(ctx context.Context, config *wgconfig.Peer, device *device.Devi
 	return monitor
 }
 
+// PeerMonitor monitors a WireGuard peer's DNS name for address changes
+// using a dedicated Go routine.
+//
+// It automatically updates the WireGuard device configuration when
+// an address change occurs.
 type PeerMonitor struct {
 	config *wgconfig.Peer
 	device *device.Device
@@ -59,14 +75,20 @@ type PeerMonitor struct {
 	err    error
 }
 
+// Name returns the name of the PeerMonitor.
 func (o *PeerMonitor) Name() string {
 	return o.name
 }
 
+// Done returns a channel that is closed when the PeerMonitor exits.
 func (o *PeerMonitor) Done() <-chan struct{} {
 	return o.done
 }
 
+// Err returns a non-nil error explaining why the PeerMonitor exited.
+//
+// Callers must first wait for the channel returned by Done to
+// be closed before calling this method.
 func (o *PeerMonitor) Err() error {
 	return o.err
 }
