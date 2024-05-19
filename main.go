@@ -17,6 +17,7 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,11 +47,19 @@ DESCRIPTION
   forwarding specifications. Each specification tells wgu where to listen
   for incoming connections and where to forward the connections to.
 
-  For configuration examples and help, please execute: ` + appName + ` ` + helpCmd + `
+  For configuration examples and help, please execute:
+    ` + appName + ` ` + helpCmd + `
+
+  To generate a basic configuration file and private key, please execute:
+    ` + appName + ` ` + genconfigCmd + `
 
 HELPER COMMANDS
 
   ` + helpCmd + `               - Display configuration syntax help and examples
+  ` + genconfigCmd + ` [dir]    - Generate an example configuration file and private key.
+                       The config and private key files are written to ~/.wgu
+                       by default. This can be overriden by specifying a path
+                       as an argument
   ` + genkeyCmd + `             - Generate a new WireGuard private key and write it
                        to stdout
   ` + pubkeyCmd + `             - Read a WireGuard private key from stdin and write
@@ -96,9 +105,12 @@ MAGIC STRINGS
     <pub-base64>*
       The address of the peer with the corresponding base64-encoded
       public key
+
+EXAMPLES
 `
 
 	helpCmd             = "help"
+	genconfigCmd        = "genconfig"
 	genkeyCmd           = "genkey"
 	pubkeyCmd           = "pubkey"
 	pubkeyFromConfigCmd = "pubkey-from-config"
@@ -424,6 +436,85 @@ func helperCommand(command string) error {
 	switch command {
 	case helpCmd:
 		os.Stdout.WriteString(help)
+	case genconfigCmd:
+		var configDirPath string
+		var privateKeyPathInConfig string
+		const privateKeyFileName = "private-key"
+
+		if flag.NArg() > 1 {
+			configDirPath = flag.Arg(1)
+
+			privateKeyPathInConfig = filepath.Join(configDirPath, privateKeyFileName)
+		} else {
+			homeDirPath, err := os.UserHomeDir()
+			if err != nil {
+				return err
+			}
+
+			configDirPath = filepath.Join(homeDirPath, ".wgu")
+
+			privateKeyPathInConfig = "~/.wgu/" + privateKeyFileName
+		}
+
+		err := os.MkdirAll(configDirPath, 0o700)
+		if err != nil {
+			return err
+		}
+
+		err = os.Chmod(configDirPath, 0o700)
+		if err != nil {
+			return err
+		}
+
+		configFilePath := filepath.Join(configDirPath, appName+".conf")
+
+		_, statErr := os.Stat(configFilePath)
+		if statErr == nil {
+			return fmt.Errorf("a configuration file already exists at: '%s'",
+				configFilePath)
+		}
+
+		privateKeyFilePath := filepath.Join(configDirPath, privateKeyFileName)
+
+		_, statErr = os.Stat(privateKeyFilePath)
+		if statErr == nil {
+			return fmt.Errorf("a private key file already exists at: '%s'",
+				privateKeyFilePath)
+		}
+
+		err = os.WriteFile(configFilePath, []byte(`[Interface]
+PrivateKey = file://`+privateKeyPathInConfig+`
+# Optionally, allow other peers to connect to us:
+# ListenPort = 4141
+
+# Example forwarding that sends TCP port 2222 on your machine
+# to the WireGuard peer with virtual address 10.0.0.2 on TCP
+# port 22 (ssh).
+# [Forwards]
+# TCP = host 127.0.0.1:2222 -> tun 10.0.0.2:22
+
+# Example peer definition:
+# [Peer]
+# PublicKey = <public-key>
+# Endpoint = <address>:<port>
+# PersistentKeepalive = 25
+`), 0o600)
+
+		privateKey, err := wgkeys.NewNoisePrivateKey()
+		if err != nil {
+			return fmt.Errorf("failed to generate private key - %w", err)
+		}
+
+		err = os.WriteFile(
+			privateKeyFilePath,
+			[]byte(base64.StdEncoding.EncodeToString(privateKey[:])+"\n"),
+			0o600,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to write private key file - %w", err)
+		}
+
+		os.Stdout.WriteString(configFilePath + "\n")
 	case genkeyCmd:
 		privateKey, err := wgkeys.NewNoisePrivateKey()
 		if err != nil {
