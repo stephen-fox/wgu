@@ -135,61 +135,8 @@ func mainWithError() error {
 		os.Exit(1)
 	}
 
-	switch flag.Arg(0) {
-	case "genkey":
-		privateKey, err := wgkeys.NewNoisePrivateKey()
-		if err != nil {
-			return fmt.Errorf("failed to generate private key - %w", err)
-		}
-
-		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(privateKey[:]) + "\n")
-
-		return nil
-	case "pubkey":
-		privateKeyB64, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return err
-		}
-
-		privateKey, err := wgkeys.NoisePrivateKeyFromBase64(string(privateKeyB64))
-		if err != nil {
-			return fmt.Errorf("failed to parse private key - %w", err)
-		}
-
-		pub := wgkeys.NoisePublicKeyFromPrivate(privateKey)
-
-		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(pub[:]) + "\n")
-
-		return nil
-	case "pubkey-from-config":
-		cfg, err := wgconfig.Parse(os.Stdin)
-		if err != nil {
-			return err
-		}
-
-		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(
-			cfg.Interface.PublicKey[:]) + "\n")
-
-		return nil
-	case "pubkey-addr":
-		publicKeyRaw, err := io.ReadAll(base64.NewDecoder(base64.StdEncoding, os.Stdin))
-		if err != nil {
-			return err
-		}
-
-		publicKey, err := wgkeys.NoisePublicKeyFromBytes(publicKeyRaw)
-		if err != nil {
-			return err
-		}
-
-		addr, err := publicKeyToV6Addr(publicKey[:])
-		if err != nil {
-			return err
-		}
-
-		os.Stdout.WriteString(addr.String() + "\n")
-
-		return nil
+	if flag.NArg() > 0 {
+		return helperCommand(flag.Arg(0))
 	}
 
 	if !*noTimeStamps {
@@ -402,6 +349,61 @@ func mainWithError() error {
 	case err = <-dnsMonitorErrs:
 		return fmt.Errorf("failed to monitor peer's dns changes - %w", err)
 	}
+}
+
+func helperCommand(command string) error {
+	switch command {
+	case "genkey":
+		privateKey, err := wgkeys.NewNoisePrivateKey()
+		if err != nil {
+			return fmt.Errorf("failed to generate private key - %w", err)
+		}
+
+		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(privateKey[:]) + "\n")
+	case "pubkey":
+		privateKeyB64, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return err
+		}
+
+		privateKey, err := wgkeys.NoisePrivateKeyFromBase64(string(privateKeyB64))
+		if err != nil {
+			return fmt.Errorf("failed to parse private key - %w", err)
+		}
+
+		pub := wgkeys.NoisePublicKeyFromPrivate(privateKey)
+
+		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(pub[:]) + "\n")
+	case "pubkey-from-config":
+		cfg, err := wgconfig.Parse(os.Stdin)
+		if err != nil {
+			return err
+		}
+
+		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(
+			cfg.Interface.PublicKey[:]) + "\n")
+	case "pubkey-addr":
+		publicKeyRaw, err := io.ReadAll(base64.NewDecoder(base64.StdEncoding, os.Stdin))
+		if err != nil {
+			return err
+		}
+
+		publicKey, err := wgkeys.NoisePublicKeyFromBytes(publicKeyRaw)
+		if err != nil {
+			return err
+		}
+
+		addr, err := publicKeyToV6Addr(publicKey[:])
+		if err != nil {
+			return err
+		}
+
+		os.Stdout.WriteString(addr.String() + "\n")
+	default:
+		return fmt.Errorf("unknown helper command: %q", command)
+	}
+
+	return nil
 }
 
 type netOp interface {
