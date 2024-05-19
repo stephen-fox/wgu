@@ -27,8 +27,7 @@ import (
 )
 
 const (
-	appName       = "wgu"
-	configPathArg = "config"
+	appName = "wgu"
 
 	usage = appName + `
 
@@ -74,6 +73,15 @@ MAGIC STRINGS
 
 OPTIONS
 `
+
+	logLevelArg            = "L"
+	noLogTimestampsArg     = "T"
+	autoAddressPlanningArg = "A"
+	configPathArg          = "config"
+	helpArg                = "h"
+	tcpArg                 = "tcp"
+	udpArg                 = "udp"
+	udpTimeoutArg          = "udp-timeout"
 )
 
 var (
@@ -94,10 +102,10 @@ func main() {
 }
 
 func mainWithError() error {
-	// Disable annoying flag.PrintDefaults on flag parse error.
-	flag.Usage = func() {}
-
-	help := flag.Bool("h", false, "Display this information")
+	help := flag.Bool(
+		helpArg,
+		false,
+		"Display this information")
 
 	forwards := make(map[string]*forwardConfig)
 
@@ -105,27 +113,58 @@ func mainWithError() error {
 		transport:     "tcp",
 		strsToConfigs: forwards,
 	}
-	flag.Var(&tcpForwards, "tcp", "TCP port forward `specification` (see -h for details)")
+	flag.Var(
+		&tcpForwards,
+		tcpArg,
+		"TCP port forward `specification` (see -h for details)")
 
 	udpForwards := forwardFlag{
 		transport:     "udp",
 		strsToConfigs: forwards,
 	}
-	flag.Var(&udpForwards, "udp", "UDP port forward `specification` (see -h for details)")
+	flag.Var(
+		&udpForwards,
+		udpArg,
+		"UDP port forward `specification` (see -h for details)")
 
-	configPath := flag.String(configPathArg, "", "Configuration file `path`")
+	flag.DurationVar(
+		&udpTimeout,
+		udpTimeoutArg,
+		2*time.Minute,
+		"UDP timeout")
 
-	logLevelString := flag.String("log-level", "info", "Log level")
+	configPath := flag.String(
+		configPathArg,
+		"",
+		"Configuration file `path`")
 
-	flag.DurationVar(&udpTimeout, "udp-timeout", 2*time.Minute, "UDP timeout")
+	autoAddrPlanning := flag.Bool(
+		autoAddressPlanningArg,
+		false,
+		"Enable automatic address planning mode (see -h for details)")
 
-	autoAddrPlanning := flag.Bool("auto", false, "")
+	writeConfig := flag.Bool(
+		"write-config",
+		false,
+		"")
 
-	writeConfig := flag.Bool("write-config", false, "")
+	writeIpcConfig := flag.Bool(
+		"write-ipc-config",
+		false,
+		"")
 
-	writeIpcConfig := flag.Bool("write-ipc-config", false, "")
+	logLevelString := flag.String(
+		logLevelArg,
+		"info",
+		"Log level ('error', info', 'debug')")
 
-	noTimeStamps := flag.Bool("no-log-timestamps", false, "Disable logging timestamps")
+	noLogTimestamps := flag.Bool(
+		noLogTimestampsArg,
+		false,
+		"Disable logging timestamps")
+
+	// Disable annoying flag.PrintDefaults on flag parse error.
+	flag.Usage = func() {}
 
 	flag.Parse()
 
@@ -139,7 +178,7 @@ func mainWithError() error {
 		return helperCommand(flag.Arg(0))
 	}
 
-	if !*noTimeStamps {
+	if !*noLogTimestamps {
 		log.SetFlags(log.LstdFlags)
 	}
 
