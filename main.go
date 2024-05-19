@@ -74,6 +74,11 @@ MAGIC STRINGS
 OPTIONS
 `
 
+	genkeyCmd           = "genkey"
+	pubkeyCmd           = "pubkey"
+	pubkeyFromConfigCmd = "pubkey-from-config"
+	pubkeyAddrCmd       = "pubkey-addr"
+
 	logLevelArg            = "L"
 	noLogTimestampsArg     = "T"
 	autoAddressPlanningArg = "A"
@@ -392,14 +397,14 @@ func mainWithError() error {
 
 func helperCommand(command string) error {
 	switch command {
-	case "genkey":
+	case genkeyCmd:
 		privateKey, err := wgkeys.NewNoisePrivateKey()
 		if err != nil {
 			return fmt.Errorf("failed to generate private key - %w", err)
 		}
 
 		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(privateKey[:]) + "\n")
-	case "pubkey":
+	case pubkeyCmd:
 		privateKeyB64, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return err
@@ -413,7 +418,7 @@ func helperCommand(command string) error {
 		pub := wgkeys.NoisePublicKeyFromPrivate(privateKey)
 
 		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(pub[:]) + "\n")
-	case "pubkey-from-config":
+	case pubkeyFromConfigCmd:
 		cfg, err := wgconfig.Parse(os.Stdin)
 		if err != nil {
 			return err
@@ -421,7 +426,7 @@ func helperCommand(command string) error {
 
 		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(
 			cfg.Interface.PublicKey[:]) + "\n")
-	case "pubkey-addr":
+	case pubkeyAddrCmd:
 		publicKeyRaw, err := io.ReadAll(base64.NewDecoder(base64.StdEncoding, os.Stdin))
 		if err != nil {
 			return err
