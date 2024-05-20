@@ -37,10 +37,25 @@ TODO
 DESCRIPTION
 TODO
 
-FORWARDING SPECIFICATION
+HELPER COMMANDS
+
+  ` + helpCmd + `               - Display configuration syntax help and examples
+  ` + genkeyCmd + `             - Generate a new WireGuard private key and write it
+                       to stdout
+  ` + pubkeyCmd + `             - Read a WireGuard private key from stdin and write
+                       its public key to stdout
+  ` + pubkeyFromConfigCmd + ` - Read a configuration file from stdin, parse
+                       its private key, and write the public key to stdout
+  ` + pubkeyAddrCmd + `        - (automatic address planning mode) - Read a public key
+                       from stdin and convert it to an IPv6 address
+
+OPTIONS
+`
+
+	help = `FORWARDING SPECIFICATION
   Port forwards can be specified using the following specification format:
 
-    <net-type> listen-address:port -> <net-type> dial-address:port
+    net-type listen-address:port -> net-type dial-address:port
 
   For example, the following specification forwards connections to
   127.0.0.1:22 on the host machine to a WireGuard peer who has the
@@ -70,10 +85,9 @@ MAGIC STRINGS
     <pub-base64>*
       The address of the peer with the corresponding base64-encoded
       public key
-
-OPTIONS
 `
 
+	helpCmd             = "help"
 	genkeyCmd           = "genkey"
 	pubkeyCmd           = "pubkey"
 	pubkeyFromConfigCmd = "pubkey-from-config"
@@ -161,7 +175,7 @@ func mainWithError() error {
 	logLevelString := flag.String(
 		logLevelArg,
 		"info",
-		"Log level ('error', info', 'debug')")
+		"Log level (possible values: 'error', 'info', 'debug')")
 
 	noLogTimestamps := flag.Bool(
 		noLogTimestampsArg,
@@ -397,6 +411,8 @@ func mainWithError() error {
 
 func helperCommand(command string) error {
 	switch command {
+	case helpCmd:
+		os.Stdout.WriteString(help)
 	case genkeyCmd:
 		privateKey, err := wgkeys.NewNoisePrivateKey()
 		if err != nil {
