@@ -47,13 +47,16 @@ DESCRIPTION
   forwarding specifications. Each specification tells wgu where to listen
   for incoming connections and where to forward the connections to.
 
-  For configuration examples and help, please execute:
+  For helper command documentation and configuration examples, please execute:
     ` + appName + ` ` + helpCmd + `
 
   To generate a basic configuration file and private key, please execute:
     ` + appName + ` ` + genconfigCmd + `
 
-HELPER COMMANDS
+OPTIONS
+`
+
+	help = `HELPER COMMANDS
 
   ` + helpCmd + `               - Display configuration syntax help and examples
   ` + genconfigCmd + ` [dir]    - Generate an example configuration file and private key.
@@ -69,10 +72,7 @@ HELPER COMMANDS
   ` + pubkeyAddrCmd + `        - (automatic address planning mode) - Read a public key
                        from stdin and convert it to an IPv6 address
 
-OPTIONS
-`
-
-	help = `FORWARDING SPECIFICATION
+FORWARDING SPECIFICATION
   Port forwards can be specified using the following specification format:
 
     net-type listen-address:port -> net-type dial-address:port
@@ -102,9 +102,64 @@ MAGIC STRINGS
 
     <pub-base64>
       The address of the peer with the corresponding base64-encoded
-      public key
+      public key (for use with automatic address planning mode)
 
-EXAMPLES
+AUTOMATIC ADDRESS PLANNING MODE
+  If the -` + autoAddressPlanningArg + ` argument is specified, then each peer's virtual WireGuard
+  address is generated from its public key in the form of an IPv6 address.
+  This makes it easier to construct simple WireGuard topologies without
+  planning out IP address allocations or needing to know each peer's
+  WireGuard address.
+
+  In this mode, it is unnecessary to specify the 'Address' configuration
+  parameter for other peers.
+
+HELLO WORLD EXAMPLE
+  In this example, we will create two WireGuard peers on the current computer
+  and forward connections to TCP port 2000 to port 3000.
+
+  First, create two configuration directories using ` + genconfigCmd + `:
+    $ wgu ` + genconfigCmd + ` peer0
+    qXwhKFk1DkZpf7XFN+pKDieCk5QVHftllLkYbsmJg2A=
+    $ wgu ` + genconfigCmd + ` peer1
+    92Ur/x6rt949/F7kk0EUTSwRNHuPWgD1mYKOAmrTZl0=
+
+  Edit peer0's config file, and make it look similar to the following:
+    [Interface]
+    PrivateKey = (...)
+    ListenPort = 4141
+    Address = 192.168.0.1/24
+
+    [Forwards]
+    TCP = tun us:2000 -> host 127.0.0.1:2000
+
+    # peer1:
+    [Peer]
+    PublicKey = (peer1's public key goes here)
+    AllowedIPs = 192.168.0.2/32
+
+  Modify  peer1's config file to look like the following:
+    [Interface]
+    PrivateKey = (...)
+    Address = 192.168.0.2/24
+
+    [Forwards]
+    TCP = host 127.0.0.1:3000 -> tun peer0:2000
+
+    # peer0:
+    [Peer]
+    PublicKey = (peer0's public key goes here)
+    Endpoint = 127.0.0.1:4141
+    AllowedIPs = 192.168.0.1/32
+
+  To create the tunnel, execute the following commands in two
+  different shells:
+    $ wgu -config peer0/wgu.conf
+    $ wgu -config peer1/wgu.conf
+
+  Finally, in two different shells, test the tunnel using nc:
+    $ nc -l 2000
+    $ echo 'hello' | nc 127.0.0.1 3000
 `
 
 	helpCmd             = "help"
@@ -122,6 +177,8 @@ EXAMPLES
 	tcpArg                 = "tcp"
 	udpArg                 = "udp"
 	udpTimeoutArg          = "udp-timeout"
+
+	helpArgv = "'" + appName + " " + helpCmd + "'"
 )
 
 var (
@@ -156,7 +213,7 @@ func mainWithError() error {
 	flag.Var(
 		&tcpForwards,
 		tcpArg,
-		"TCP port forward `specification` (see -h for details)")
+		"TCP port forward `specification` (see "+helpArgv+" for details)")
 
 	udpForwards := forwardFlag{
 		transport:     "udp",
@@ -165,7 +222,7 @@ func mainWithError() error {
 	flag.Var(
 		&udpForwards,
 		udpArg,
-		"UDP port forward `specification` (see -h for details)")
+		"UDP port forward `specification` (see "+helpArgv+" for details)")
 
 	flag.DurationVar(
 		&udpTimeout,
@@ -181,7 +238,7 @@ func mainWithError() error {
 	autoAddrPlanning := flag.Bool(
 		autoAddressPlanningArg,
 		false,
-		"Enable automatic address planning mode (see -h for details)")
+		"Enable automatic address planning mode (see "+helpArgv+" for details)")
 
 	writeConfig := flag.Bool(
 		"write-config",
