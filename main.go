@@ -518,7 +518,8 @@ PrivateKey = file://`+privateKeyPathInConfig+`
 			return fmt.Errorf("failed to write private key file - %w", err)
 		}
 
-		os.Stdout.WriteString(configFilePath + "\n")
+		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(
+			wgkeys.NoisePublicKeyFromPrivate(privateKey)[:]) + "\n")
 	case genkeyCmd:
 		privateKey, err := wgkeys.NewNoisePrivateKey()
 		if err != nil {
