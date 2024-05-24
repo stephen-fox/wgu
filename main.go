@@ -91,18 +91,16 @@ NETWORK TYPES
 MAGIC STRINGS
   The "listen-address" and "dial-address" values can be replaced with
   magic strings that are expanded to the corresponding address.
-  Note: Strings marked with "*" are only expanded in automatic address
-  planning mode.
 
     us
-      The first IP address of the virtual WireGuard interface
+      The first IP address of our virtual WireGuard interface
 
-    peerN*
+    peerN
       The address of peer number N as they appear in the WireGuard
       configuration file. For example, "peer0" would be the address
       of the first peer in the WireGuard configuration file
 
-    <pub-base64>*
+    <pub-base64>
       The address of the peer with the corresponding base64-encoded
       public key
 
@@ -287,9 +285,8 @@ func mainWithError() error {
 		}
 	}
 
-	var optAutoPeers []autoPeer
 	if *autoAddrPlanning {
-		optAutoPeers, err = doAutoAddrPlanning(cfg)
+		err = doAutoAddrPlanning(cfg)
 		if err != nil {
 			return fmt.Errorf("failed to do automatic address planning - %w", err)
 		}
@@ -317,10 +314,9 @@ func mainWithError() error {
 	ourWgAddrStr := cfg.Interface.Address.Addr().String()
 	for str, forward := range forwards {
 		err = replaceWgAddrShortcuts(replaceWgAddrShortcutsArgs{
-			addr:               &forward.lAddr.addr,
-			ourWgAddr:          ourWgAddrStr,
-			isAutoAddrPlanning: *autoAddrPlanning,
-			optAutoPeers:       optAutoPeers,
+			addr:      &forward.lAddr.addr,
+			ourWgAddr: ourWgAddrStr,
+			peers:     cfg.Peers,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to replace listen addr for %q - %w",
@@ -328,10 +324,9 @@ func mainWithError() error {
 		}
 
 		err = replaceWgAddrShortcuts(replaceWgAddrShortcutsArgs{
-			addr:               &forward.dAddr.addr,
-			ourWgAddr:          ourWgAddrStr,
-			isAutoAddrPlanning: *autoAddrPlanning,
-			optAutoPeers:       optAutoPeers,
+			addr:      &forward.dAddr.addr,
+			ourWgAddr: ourWgAddrStr,
+			peers:     cfg.Peers,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to replace dial addr for %q - %w",
@@ -917,10 +912,10 @@ func (o *forwardFlag) String() string {
 	return "" // TODO
 }
 
-func doAutoAddrPlanning(cfg *wgconfig.Config) ([]autoPeer, error) {
+func doAutoAddrPlanning(cfg *wgconfig.Config) error {
 	ourIntAddr, err := publicKeyToV6Addr(cfg.Interface.PublicKey[:])
 	if err != nil {
-		return nil, fmt.Errorf("failed to convert our public key to v6 addr: %q - %w",
+		return fmt.Errorf("failed to convert our public key to v6 addr: %q - %w",
 			base64.StdEncoding.EncodeToString(cfg.Interface.PublicKey[:]), err)
 	}
 
@@ -932,7 +927,7 @@ func doAutoAddrPlanning(cfg *wgconfig.Config) ([]autoPeer, error) {
 	for _, peer := range cfg.Peers {
 		peerAddr, err := publicKeyToV6Addr(peer.PublicKey[:])
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert peer public key to v6 addr: %q - %w",
+			return fmt.Errorf("failed to convert peer public key to v6 addr: %q - %w",
 				base64.StdEncoding.EncodeToString(peer.PublicKey[:]), err)
 		}
 
@@ -944,7 +939,7 @@ func doAutoAddrPlanning(cfg *wgconfig.Config) ([]autoPeer, error) {
 		})
 	}
 
-	return peers, nil
+	return nil
 }
 
 type autoPeer struct {
@@ -953,10 +948,9 @@ type autoPeer struct {
 }
 
 type replaceWgAddrShortcutsArgs struct {
-	addr               *string
-	ourWgAddr          string
-	isAutoAddrPlanning bool
-	optAutoPeers       []autoPeer
+	addr      *string
+	ourWgAddr string
+	peers     []*wgconfig.Peer
 }
 
 func replaceWgAddrShortcuts(args replaceWgAddrShortcutsArgs) error {
@@ -965,17 +959,24 @@ func replaceWgAddrShortcuts(args replaceWgAddrShortcutsArgs) error {
 		return nil
 	}
 
-	if !args.isAutoAddrPlanning {
-		return nil
-	}
-
-	nPeers := len(args.optAutoPeers)
+	nPeers := len(args.peers)
 
 	if n, ok := isPeerNStr(*args.addr); ok {
-		if n < nPeers {
-			*args.addr = args.optAutoPeers[n].addr.String()
-			return nil
+		if n >= nPeers {
+			return fmt.Errorf("peer index %d was specified but only %d peers are declared", n, nPeers)
 		}
+
+		addr, err := singleAddrPrefix(args.peers[n].AllowedIPs)
+		if err != nil {
+			return fmt.Errorf("failed to get address for peer index %d (%s) - %w",
+				n,
+				base64.StdEncoding.EncodeToString(args.peers[n].PublicKey[:]),
+				err)
+		}
+
+		*args.addr = addr.String()
+
+		return nil
 	}
 
 	if publicKey, ok := isWgPublicKeyStr(*args.addr); ok {
@@ -1003,6 +1004,20 @@ func isPeerNStr(str string) (int, bool) {
 	}
 
 	return n, true
+}
+
+func singleAddrPrefix(prefixes []netip.Prefix) (netip.Addr, error) {
+	if len(prefixes) == 0 {
+		return netip.Addr{}, errors.New("no AllowedIPs were specified")
+	}
+
+	for _, prefix := range prefixes {
+		if prefix.Bits() == 128 || prefix.Bits() == 32 {
+			return prefix.Addr(), nil
+		}
+	}
+
+	return netip.Addr{}, errors.New("AllowedIPs missing single address entry")
 }
 
 func isWgPublicKeyStr(str string) ([]byte, bool) {
