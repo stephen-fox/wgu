@@ -442,7 +442,11 @@ func helperCommand(command string) error {
 		const privateKeyFileName = "private-key"
 
 		if flag.NArg() > 1 {
-			configDirPath = flag.Arg(1)
+			var err error
+			configDirPath, err = filepath.Abs(flag.Arg(1))
+			if err != nil {
+				return err
+			}
 
 			privateKeyPathInConfig = filepath.Join(configDirPath, privateKeyFileName)
 		} else {
