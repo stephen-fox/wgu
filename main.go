@@ -114,6 +114,9 @@ AUTOMATIC ADDRESS PLANNING MODE
   In this mode, it is unnecessary to specify the 'Address' configuration
   parameter for other peers.
 
+  Refer to the AUTOMATIC ADDRESS PLANNING MODE EXAMPLE section for
+  an example.
+
 HELLO WORLD EXAMPLE
   In this example, we will create two WireGuard peers on the current computer
   and forward connections to TCP port 2000 to port 3000.
@@ -138,7 +141,7 @@ HELLO WORLD EXAMPLE
     PublicKey = (peer1's public key goes here)
     AllowedIPs = 192.168.0.2/32
 
-  Modify  peer1's config file to look like the following:
+  Modify peer1's config file to look like the following:
     [Interface]
     PrivateKey = (...)
     Address = 192.168.0.2/24
@@ -156,6 +159,50 @@ HELLO WORLD EXAMPLE
   different shells:
     $ wgu -config peer0/wgu.conf
     $ wgu -config peer1/wgu.conf
+
+  Finally, in two different shells, test the tunnel using nc:
+    $ nc -l 2000
+    $ echo 'hello' | nc 127.0.0.1 3000
+
+AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
+  Like the previous example, we will create two WireGuard peers on the
+  current computer. This time we will simplify the configuration using
+  automatic address planning mode.
+
+  First, create two configuration directories using ` + genconfigCmd + `:
+    $ wgu ` + genconfigCmd + ` peer0
+    qXwhKFk1DkZpf7XFN+pKDieCk5QVHftllLkYbsmJg2A=
+    $ wgu ` + genconfigCmd + ` peer1
+    92Ur/x6rt949/F7kk0EUTSwRNHuPWgD1mYKOAmrTZl0=
+
+  Edit peer0's config file, and make it look similar to the following:
+    [Interface]
+    PrivateKey = (...)
+    ListenPort = 4141
+
+    [Forwards]
+    TCP = tun us:2000 -> host 127.0.0.1:2000
+
+    # peer1:
+    [Peer]
+    PublicKey = (peer1's public key goes here)
+
+  Modify peer1's config file to look like the following:
+    [Interface]
+    PrivateKey = (...)
+
+    [Forwards]
+    TCP = host 127.0.0.1:3000 -> tun peer0:2000
+
+    # peer0:
+    [Peer]
+    PublicKey = (peer0's public key goes here)
+    Endpoint = 127.0.0.1:4141
+
+  To create the tunnel *and* enable automatic address planning,
+  execute the following commands in two different shells:
+    $ wgu -config peer0/wgu.conf -` + autoAddressPlanningArg + `
+    $ wgu -config peer1/wgu.conf -` + autoAddressPlanningArg + `
 
   Finally, in two different shells, test the tunnel using nc:
     $ nc -l 2000
