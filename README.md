@@ -6,6 +6,10 @@ Connections to network services running on peers are managed using
 forwarding specifications. Each specification tells wgu where to listen
 for incoming connections and where to forward the connections to.
 
+[wgfwd]: https://github.com/jgiannuzzi/wgfwd
+
+## Features
+
 wgu expands on wgfwd's functionality with the following features:
 
 - Specify which side of the tunnel a network listener should be created on
@@ -16,8 +20,6 @@ wgu expands on wgfwd's functionality with the following features:
   as IPv6 addresses using automatic address planning mode
 - Support for resolving peers' using DNS hostnames
 - Read the private key from a separate file
-
-[wgfwd]: https://github.com/jgiannuzzi/wgfwd
 
 ## Configuration
 
