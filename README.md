@@ -190,7 +190,7 @@ Edit peer0's config file, and make it look similar to the following:
 
 ```ini
 [Interface]
-PrivateKey = ffile:///tmp/example/peer0/private-key
+PrivateKey = file:///tmp/example/peer0/private-key
 ListenPort = 4141
 Address = 192.168.0.1/24
 
@@ -207,7 +207,7 @@ Modify peer1's config file to look like the following:
 
 ```ini
 [Interface]
-PrivateKey = ffile:///tmp/example/peer1/private-key
+PrivateKey = file:///tmp/example/peer1/private-key
 Address = 192.168.0.2/24
 
 [Forwards]
@@ -272,7 +272,7 @@ Modify peer1's config file to look like the following:
 
 ```ini
 [Interface]
-PrivateKey = ffile:///tmp/example/peer1/private-key
+PrivateKey = file:///tmp/example/peer1/private-key
 
 [Forwards]
 TCP = host 127.0.0.1:3000 -> tun peer0:2000
