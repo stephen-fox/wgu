@@ -73,22 +73,23 @@ OPTIONS
                        from stdin and convert it to an IPv6 address
 
 FORWARDING SPECIFICATION
-  Port forwards can be specified using the following specification format:
+  Port forwards are defined in the [Forwards] section using the following
+  specification format:
 
-    net-type listen-address:port -> net-type dial-address:port
+    transport = net-type listen-address:port -> net-type dial-address:port
 
-  For example, the following specification forwards connections to
+  For example, the following specification forwards TCP connections to
   127.0.0.1:22 on the host machine to a WireGuard peer who has the
   virtual address of 10.0.0.1:
 
-    host 127.0.0.1:22 -> tun 10.0.0.1:22
+    TCP = host 127.0.0.1:22 -> tun 10.0.0.1:22
 
-NETWORK TYPES
+  "net-type" may be one of the following values:
 
-  - host - The host computer's networking stack is used
-  - tun  - The WireGuard networking stack is used
+    - host - The host computer's networking stack is used
+    - tun  - The WireGuard networking stack is used
 
-MAGIC STRINGS
+FORWARDING MAGIC STRINGS
   The "listen-address" and "dial-address" values can be replaced with
   magic strings that are expanded to the corresponding address.
 
@@ -590,13 +591,16 @@ PrivateKey = file://`+privateKeyPathInConfig+`
 # Optionally, allow other peers to connect to us:
 # ListenPort = 4141
 
-# Example forwarding that sends TCP port 2222 on your machine
-# to the WireGuard peer with virtual address 10.0.0.2 on TCP
-# port 22 (ssh).
+# Note: For more information, please execute: "`+appName+` `+helpCmd+`"
+#
+# The following forwarding example sends TCP port 2222 on your machine
+# to the WireGuard peer with virtual address 10.0.0.2 on TCP port 22 (ssh):
+#
 # [Forwards]
 # TCP = host 127.0.0.1:2222 -> tun 10.0.0.2:22
 
 # Example peer definition:
+#
 # [Peer]
 # PublicKey = <public-key>
 # Endpoint = <address>:<port>

@@ -18,8 +18,19 @@ wgu expands on wgfwd's functionality with the following features:
 - Added additional helper commands like `genconfig` to make setup easier
 - Optionally address peers' WireGuard interfaces using their public keys
   as IPv6 addresses using automatic address planning mode
-- Support for resolving peers' using DNS hostnames
-- Read the private key from a separate file
+- Support for resolving peers' external addresses using DNS hostnames
+- Store the private key in a separate file
+
+## Automatic address planning mode
+
+If the `-A` argument is specified, then each peer's virtual WireGuard
+address is generated from its public key in the form of an IPv6 address.
+This makes it easier to construct simple WireGuard topologies without
+planning out IP address allocations or needing to know each peer's
+WireGuard address.
+
+In this mode, it is unnecessary to specify the 'Address' configuration
+parameter for other peers.
 
 ## Configuration
 
@@ -37,6 +48,40 @@ written to standard output:
 $ wgu genconfig
 z9yJgu9cvwbygPzuUtzcmkuB2K2nxA6viKj1kUDj4Ug=
 ```
+
+#### Forwarding specification
+
+Port forwards are defined in the `[Forwards]` section using the following
+specification format:
+
+```
+transport = net-type listen-address:port -> net-type dial-address:port
+```
+
+For example, the following specification forwards TCP connections to
+127.0.0.1:22 on the host machine to a WireGuard peer who has the
+virtual address of 10.0.0.1:
+
+```ini
+TCP = host 127.0.0.1:22 -> tun 10.0.0.1:22
+```
+
+`net-type` may be one of the following values:
+
+- host - The host computer's networking stack is used
+- tun  - The WireGuard networking stack is used
+
+#### Forwarding magic strings
+
+The "listen-address" and "dial-address" values can be replaced with
+magic strings that are expanded to the corresponding address.
+
+- `us` - The first IP address of our virtual WireGuard interface
+- `peerN` - The address of peer number N as they appear in the WireGuard
+  configuration file. For example, "peer0" would be the address
+  of the first peer in the WireGuard configuration file
+- `<pub-base64>` - The address of the peer with the corresponding
+  base64-encoded public key (for use with automatic address planning mode)
 
 ## Helper commands
 
@@ -112,7 +157,7 @@ z9yJgu9cvwbygPzuUtzcmkuB2K2nxA6viKj1kUDj4Ug=
 
 #### `pubkey-addr`
 
-Note: This is for use with the `automatic addressing` feature.
+Note: This is for use with the `automatic address planning mode` feature.
 
 Generates an IPv6 address for the given WireGuard public key.
 
@@ -130,9 +175,11 @@ $ wgu pubkey-addr < another-peers-public-key
 In this example, we will create two WireGuard peers on the current computer
 and forward connections to TCP port 2000 to port 3000.
 
-First, create two configuration directories using genconfig:
+First, create two configuration directories named `peer0` and `peer1`
+using `genconfig`:
 
 ```console
+$ cd $(mktemp -d)
 $ wgu genconfig peer0
 qXwhKFk1DkZpf7XFN+pKDieCk5QVHftllLkYbsmJg2A=
 $ wgu genconfig peer1
@@ -143,7 +190,7 @@ Edit peer0's config file, and make it look similar to the following:
 
 ```ini
 [Interface]
-PrivateKey = (...)
+PrivateKey = ffile:///tmp/example/peer0/private-key
 ListenPort = 4141
 Address = 192.168.0.1/24
 
@@ -152,7 +199,7 @@ TCP = tun us:2000 -> host 127.0.0.1:2000
 
 # peer1:
 [Peer]
-PublicKey = (peer1's public key goes here)
+PublicKey = 92Ur/x6rt949/F7kk0EUTSwRNHuPWgD1mYKOAmrTZl0=
 AllowedIPs = 192.168.0.2/32
 ```
 
@@ -160,7 +207,7 @@ Modify peer1's config file to look like the following:
 
 ```ini
 [Interface]
-PrivateKey = (...)
+PrivateKey = ffile:///tmp/example/peer1/private-key
 Address = 192.168.0.2/24
 
 [Forwards]
@@ -168,7 +215,7 @@ TCP = host 127.0.0.1:3000 -> tun peer0:2000
 
 # peer0:
 [Peer]
-PublicKey = (peer0's public key goes here)
+PublicKey = qXwhKFk1DkZpf7XFN+pKDieCk5QVHftllLkYbsmJg2A=
 Endpoint = 127.0.0.1:4141
 AllowedIPs = 192.168.0.1/32
 ```
@@ -190,13 +237,16 @@ $ echo 'hello' | nc 127.0.0.1 3000
 
 #### Automatic address planning mode example
 
-Like the previous example, we will create two WireGuard peers on the
-current computer. This time we will simplify the configuration using
-automatic address planning mode.
+We can simplify the previous example's configuration using automatic address
+planning mode. In this mode, each user's internal VPN address is derived
+from their public key. Like the previous example, we will create two
+WireGuard peers on the current computer.
 
-First, create two configuration directories using genconfig:
+First, create two configuration directories named `peer0` and `peer1`
+using genconfig:
 
 ```console
+$ cd $(mktemp -d)
 $ wgu genconfig peer0
 qXwhKFk1DkZpf7XFN+pKDieCk5QVHftllLkYbsmJg2A=
 $ wgu genconfig peer1
@@ -207,7 +257,7 @@ Edit peer0's config file, and make it look similar to the following:
 
 ```ini
 [Interface]
-PrivateKey = (...)
+PrivateKey = file:///tmp/example/peer0/private-key
 ListenPort = 4141
 
 [Forwards]
@@ -215,21 +265,21 @@ TCP = tun us:2000 -> host 127.0.0.1:2000
 
 # peer1:
 [Peer]
-PublicKey = (peer1's public key goes here)
+PublicKey = 92Ur/x6rt949/F7kk0EUTSwRNHuPWgD1mYKOAmrTZl0=
 ```
 
 Modify peer1's config file to look like the following:
 
 ```ini
 [Interface]
-PrivateKey = (...)
+PrivateKey = ffile:///tmp/example/peer1/private-key
 
 [Forwards]
 TCP = host 127.0.0.1:3000 -> tun peer0:2000
 
 # peer0:
 [Peer]
-PublicKey = (peer0's public key goes here)
+PublicKey = qXwhKFk1DkZpf7XFN+pKDieCk5QVHftllLkYbsmJg2A=
 Endpoint = 127.0.0.1:4141
 ```
 
