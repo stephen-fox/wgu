@@ -58,6 +58,11 @@ specification format:
 transport = net-type listen-address:port -> net-type dial-address:port
 ```
 
+`net-type` may be one of the following values:
+
+- host - The host computer's networking stack is used
+- tun  - The WireGuard networking stack is used
+
 For example, the following specification forwards TCP connections to
 127.0.0.1:22 on the host machine to a WireGuard peer who has the
 virtual address of 10.0.0.1:
@@ -65,11 +70,6 @@ virtual address of 10.0.0.1:
 ```ini
 TCP = host 127.0.0.1:22 -> tun 10.0.0.1:22
 ```
-
-`net-type` may be one of the following values:
-
-- host - The host computer's networking stack is used
-- tun  - The WireGuard networking stack is used
 
 #### Forwarding magic strings
 
