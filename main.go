@@ -478,49 +478,9 @@ func mainWithError() error {
 	dnsMonitorErrs := make(chan error, 1)
 	wgdns.MonitorPeers(ctx, cfg.Peers, dev, dnsMonitorErrs, loggerInfo)
 
-	var waitGroup sync.WaitGroup
-	var localNetOp = &localNetOp{}
-	var tunnelNetOp = &tunnelNetOp{tnet}
-
-	for fwdStr, fwd := range forwards {
-		lAddr, err := fwd.lAddr.toAddrPort()
-		if err != nil {
-			return fmt.Errorf("failed to parse listen addr port for %q - %w",
-				fwdStr, err)
-		}
-
-		rAddr, err := fwd.dAddr.toAddrPort()
-		if err != nil {
-			return fmt.Errorf("failed to parse dial addr port for %q - %w",
-				fwdStr, err)
-		}
-
-		var listenNet netOp
-		switch fwd.lNet {
-		case hostNetType:
-			listenNet = localNetOp
-		case tunNetType:
-			listenNet = tunnelNetOp
-		default:
-			return fmt.Errorf("unsupported listen net type: %q", fwd.lNet)
-		}
-
-		var dialNet netOp
-		switch fwd.dNet {
-		case hostNetType:
-			dialNet = localNetOp
-		case tunNetType:
-			dialNet = tunnelNetOp
-		default:
-			return fmt.Errorf("unsupported dial net type: %q", fwd.lNet)
-		}
-
-		log.Printf("TODO: %q - %+v", fwdStr, fwd)
-
-		err = forward(ctx, &waitGroup, fwd.proto, listenNet, lAddr.String(), dialNet, rAddr.String())
-		if err != nil {
-			return fmt.Errorf("error forwarding %+v: %s", fwd, err)
-		}
+	waitGroup, err := startForwarders(ctx, tnet, forwards)
+	if err != nil {
+		return fmt.Errorf("failed to start network forwarders - %w", err)
 	}
 
 	select {
@@ -723,18 +683,57 @@ func (n *tunnelNetOp) ListenPacket(ctx context.Context, network string, address 
 	return n.tun.ListenUDP(addr)
 }
 
-func forward(ctx context.Context, waitGroup *sync.WaitGroup, proto string, lNet netOp, lAddr string, rNet netOp, rAddr string) error {
-	switch proto {
-	case "tcp":
-		return forwardTCP(ctx, waitGroup, lNet, lAddr, rNet, rAddr)
-	case "udp":
-		return forwardUDP(ctx, waitGroup, lNet, lAddr, rNet, rAddr)
-	default:
-		return fmt.Errorf("unknown protocol: %s", proto)
+func startForwarders(ctx context.Context, tnet *netstack.Net, forwards map[string]*forwardConfig) (*sync.WaitGroup, error) {
+	waitGroup := &sync.WaitGroup{}
+	var localNetOp = &localNetOp{}
+	var tunnelNetOp = &tunnelNetOp{tnet}
+
+	for fwdStr, fwd := range forwards {
+		var listenNet netOp
+		switch fwd.lNet {
+		case hostNetType:
+			listenNet = localNetOp
+		case tunNetType:
+			listenNet = tunnelNetOp
+		default:
+			return nil, fmt.Errorf("unsupported listen net type: %q", fwd.lNet)
+		}
+
+		var dialNet netOp
+		switch fwd.dNet {
+		case hostNetType:
+			dialNet = localNetOp
+		case tunNetType:
+			dialNet = tunnelNetOp
+		default:
+			return nil, fmt.Errorf("unsupported dial net type: %q", fwd.lNet)
+		}
+
+		loggerInfo.Printf("starting %q...", fwdStr)
+
+		var err error
+
+		switch fwd.proto {
+		case "tcp":
+			err = forwardTCP(ctx, waitGroup, fwd, listenNet, dialNet)
+		case "udp":
+			err = forwardUDP(ctx, waitGroup, fwd, listenNet, dialNet)
+		default:
+			return nil, fmt.Errorf("unknown protocol: %s", fwd.proto)
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to forward %q - %w", fwdStr, err)
+		}
 	}
+
+	return waitGroup, nil
 }
 
-func forwardTCP(ctx context.Context, waitGroup *sync.WaitGroup, lNet netOp, lAddr string, rNet netOp, rAddr string) error {
+func forwardTCP(ctx context.Context, waitGroup *sync.WaitGroup, config *forwardConfig, lNet netOp, rNet netOp) error {
+	lAddr := config.lAddr.String()
+	rAddr := config.dAddr.String()
+
 	listener, err := lNet.Listen(ctx, "tcp", lAddr)
 	if err != nil {
 		return err
@@ -742,7 +741,10 @@ func forwardTCP(ctx context.Context, waitGroup *sync.WaitGroup, lNet netOp, lAdd
 
 	go func() {
 		<-ctx.Done()
-		loggerInfo.Printf("Stopping TCP forwarder for %s -> %s", lAddr, rAddr)
+
+		loggerInfo.Printf("Stopping TCP forwarder for %s -> %s",
+			lAddr, rAddr)
+
 		listener.Close()
 	}()
 
@@ -756,7 +758,9 @@ func forwardTCP(ctx context.Context, waitGroup *sync.WaitGroup, lNet netOp, lAdd
 				loggerErr.Printf("Error accepting tcp connection: %s", err)
 				return
 			}
-			loggerDebug.Printf("Accepted TCP connection from %s for %s", conn.RemoteAddr(), lAddr)
+
+			loggerDebug.Printf("Accepted TCP connection from %s for %s",
+				conn.RemoteAddr(), lAddr)
 
 			go dialAndCopyTCP(ctx, conn, rNet, rAddr)
 		}
@@ -788,6 +792,7 @@ func dialAndCopyTCP(ctx context.Context, conn net.Conn, rNet netOp, rAddr string
 			loggerDebug.Printf("Error copying from %s: %s", conn.RemoteAddr(), err)
 		}
 	}()
+
 	go func() {
 		defer iwg.Done()
 		defer remote.Close()
@@ -802,21 +807,29 @@ func dialAndCopyTCP(ctx context.Context, conn net.Conn, rNet netOp, rAddr string
 	loggerDebug.Printf("Connection from %s closed", conn.RemoteAddr())
 }
 
-func forwardUDP(ctx context.Context, waitGroup *sync.WaitGroup, lNet netOp, lAddr string, rNet netOp, rAddr string) error {
-	// TODO: Needs synchronization
-	remoteConns := make(map[string]net.Conn)
+func forwardUDP(ctx context.Context, waitGroup *sync.WaitGroup, config *forwardConfig, lNet netOp, rNet netOp) error {
+	lAddr := config.lAddr.String()
+	rAddr := config.dAddr.String()
 
 	localConn, err := lNet.ListenPacket(ctx, "udp", lAddr)
 	if err != nil {
 		return err
 	}
 
+	remoteConns := newConnMap()
+
 	go func() {
 		<-ctx.Done()
+
 		loggerInfo.Printf("stopping UDP forwarder for %s -> %s", lAddr, rAddr)
-		for _, c := range remoteConns {
-			c.Close()
-		}
+
+		remoteConns.do(func(m map[string]net.Conn) {
+			for addr, c := range m {
+				c.Close()
+				delete(m, addr)
+			}
+		})
+
 		localConn.Close()
 	}()
 
@@ -958,6 +971,10 @@ func (o *connMap) delete(addr string) {
 type addrPort struct {
 	addr string
 	port uint16
+}
+
+func (o addrPort) String() string {
+	return net.JoinHostPort(o.addr, strconv.Itoa(int(o.port)))
 }
 
 func (o addrPort) toAddrPort() (netip.AddrPort, error) {
