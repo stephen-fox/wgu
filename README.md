@@ -76,7 +76,7 @@ TCP = host 127.0.0.1:22 -> tun 10.0.0.1:22
 The "listen-address" and "dial-address" values can be replaced with
 magic strings that are expanded to the corresponding address.
 
-- `us` - The first IP address of our virtual WireGuard interface
+- `@us` - The first IP address of our virtual WireGuard interface
 - `@<name>` - The address of the peer with the corresponding name according
   to the peer's Name field Name field
 
