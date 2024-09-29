@@ -38,7 +38,12 @@ const (
 	usage = appName + `
 
 SYNOPSIS
-  ` + appName + ` [helper-command] [options]
+  ` + appName + ` -` + configPathArg + ` config-path [options]
+  ` + appName + ` ` + helpCmd + `
+  ` + appName + ` ` + genconfigCmd + ` [dir]
+  ` + appName + ` ` + pubkeyCmd + ` < private-key-file
+  ` + appName + ` ` + pubkeyFromConfigCmd + ` < public-key-file
+  ` + appName + ` ` + pubkeyAddrCmd + ` < public-key-file
 
 DESCRIPTION
   wgu (WireGuard User Space) is a fork of Jonathan Giannuzzi's wgfwd.
