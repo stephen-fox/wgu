@@ -730,9 +730,9 @@ func startForwarders(ctx context.Context, tnet *netstack.Net, forwards map[strin
 	return waitGroup, nil
 }
 
-func forwardTCP(ctx context.Context, waitGroup *sync.WaitGroup, config *forwardConfig, lNet netOp, rNet netOp) error {
+func forwardTCP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfig, lNet netOp, dNet netOp) error {
 	lAddr := config.lAddr.String()
-	rAddr := config.dAddr.String()
+	dAddr := config.dAddr.String()
 
 	listener, err := lNet.Listen(ctx, "tcp", lAddr)
 	if err != nil {
@@ -748,9 +748,9 @@ func forwardTCP(ctx context.Context, waitGroup *sync.WaitGroup, config *forwardC
 		listener.Close()
 	}()
 
-	waitGroup.Add(1)
+	waitg.Add(1)
 	go func() {
-		defer waitGroup.Done()
+		defer waitg.Done()
 
 		for {
 			conn, err := listener.Accept()
@@ -807,7 +807,7 @@ func dialAndCopyTCP(ctx context.Context, conn net.Conn, rNet netOp, rAddr string
 	loggerDebug.Printf("Connection from %s closed", conn.RemoteAddr())
 }
 
-func forwardUDP(ctx context.Context, waitGroup *sync.WaitGroup, config *forwardConfig, lNet netOp, rNet netOp) error {
+func forwardUDP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfig, lNet netOp, rNet netOp) error {
 	lAddr := config.lAddr.String()
 	rAddr := config.dAddr.String()
 
@@ -833,9 +833,9 @@ func forwardUDP(ctx context.Context, waitGroup *sync.WaitGroup, config *forwardC
 		localConn.Close()
 	}()
 
-	waitGroup.Add(1)
+	waitg.Add(1)
 	go func() {
-		defer waitGroup.Done()
+		defer waitg.Done()
 		buffer := make([]byte, 1392)
 
 		for {
