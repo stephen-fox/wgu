@@ -224,11 +224,7 @@ func (o *Interface) OnParam(paramName string) (func(*ini.Param) error, ini.Schem
 			return nil
 		}, ini.SchemaRule{Limit: 1}
 	default:
-		return func(p *ini.Param) error {
-			o.Others = append(o.Others, p)
-
-			return nil
-		}, ini.SchemaRule{}
+		return nil, ini.SchemaRule{}
 	}
 }
 
@@ -357,11 +353,7 @@ func (o *Peer) OnParam(paramName string) (func(*ini.Param) error, ini.SchemaRule
 			return nil
 		}, ini.SchemaRule{Limit: 1}
 	default:
-		return func(p *ini.Param) error {
-			o.Others = append(o.Others, p)
-
-			return nil
-		}, ini.SchemaRule{}
+		return nil, ini.SchemaRule{}
 	}
 }
 
