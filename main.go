@@ -235,6 +235,12 @@ var (
 	loggerInfo  = log.New(io.Discard, "", 0)
 	loggerErr   = log.New(io.Discard, "", 0)
 	loggerDebug = log.New(io.Discard, "", 0)
+
+	// These bools are used to control logging in places where
+	// performance really matters (like UDP forwarding).
+	linfo  = false
+	lerr   = false
+	ldebug = false
 )
 
 func main() {
@@ -329,12 +335,15 @@ func mainWithError() error {
 
 	switch *logLevelString {
 	case "debug":
+		ldebug = true
 		loggerDebug = log.New(log.Writer(), "[debug] ", log.Flags()|log.Lmsgprefix)
 		fallthrough
 	case "info":
+		linfo = true
 		loggerInfo = log.New(log.Writer(), "[info] ", log.Flags()|log.Lmsgprefix)
 		fallthrough
 	case "error":
+		lerr = true
 		loggerErr = log.New(log.Writer(), "[error] ", log.Flags()|log.Lmsgprefix)
 	}
 
@@ -744,8 +753,10 @@ func forwardTCP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfi
 	go func() {
 		<-ctx.Done()
 
-		loggerInfo.Printf("Stopping TCP forwarder for %s -> %s",
-			lAddr, rAddr)
+		if linfo {
+			loggerInfo.Printf("stopping TCP forwarder for %s -> %s...",
+				lAddr, dAddr)
+		}
 
 		listener.Close()
 	}()
@@ -757,18 +768,25 @@ func forwardTCP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfi
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
-				loggerErr.Printf("Error accepting tcp connection: %s", err)
+				if lerr {
+					loggerErr.Printf("error accepting tcp connection: %s", err)
+				}
+
 				return
 			}
 
-			loggerDebug.Printf("Accepted TCP connection from %s for %s",
-				conn.RemoteAddr(), lAddr)
+			if ldebug {
+				loggerDebug.Printf("accepted TCP connection from %s for %s",
+					conn.RemoteAddr(), lAddr)
+			}
 
-			go dialAndCopyTCP(ctx, conn, rNet, rAddr)
+			go dialAndCopyTCP(ctx, conn, dNet, dAddr)
 		}
 	}()
 
-	loggerInfo.Printf("TCP forwarder started for %s -> %s", lAddr, rAddr)
+	if linfo {
+		loggerInfo.Printf("TCP forwarder started for %s -> %s", lAddr, dAddr)
+	}
 
 	return nil
 }
@@ -778,13 +796,18 @@ func dialAndCopyTCP(ctx context.Context, src net.Conn, dNet netOp, dstAddr strin
 
 	dst, err := dNet.Dial(ctx, "tcp", dstAddr)
 	if err != nil {
-		loggerErr.Printf("error connecting to remote TCP: %s", err)
+		if lerr {
+			loggerErr.Printf("error connecting to remote TCP: %s", err)
+		}
+
 		return
 	}
 	defer dst.Close()
 
-	loggerDebug.Printf("TCP connection forwarded from %s to %s",
-		src.RemoteAddr(), dstAddr)
+	if ldebug {
+		loggerDebug.Printf("TCP connection forwarded from %s to %s",
+			src.RemoteAddr(), dstAddr)
+	}
 
 	done := make(chan string, 2)
 
@@ -804,8 +827,10 @@ func dialAndCopyTCP(ctx context.Context, src net.Conn, dNet netOp, dstAddr strin
 	case <-ctx.Done():
 		return
 	case reason := <-done:
-		loggerDebug.Printf("connection from %s closed: %s",
-			src.RemoteAddr(), reason)
+		if ldebug {
+			loggerDebug.Printf("connection from %s closed: %s",
+				src.RemoteAddr(), reason)
+		}
 	}
 }
 
@@ -823,7 +848,9 @@ func forwardUDP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfi
 	go func() {
 		<-ctx.Done()
 
-		loggerInfo.Printf("stopping UDP forwarder for %s -> %s", lAddr, rAddr)
+		if linfo {
+			loggerInfo.Printf("stopping UDP forwarder for %s -> %s", lAddr, rAddr)
+		}
 
 		remoteConns.do(func(m map[string]net.Conn) {
 			for addr, c := range m {
@@ -843,13 +870,16 @@ func forwardUDP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfi
 		for {
 			n, addr, err := localConn.ReadFrom(buffer)
 			if err != nil {
-				loggerDebug.Printf("error reading from UDP socket: %#v", err)
+				if ldebug {
+					loggerDebug.Printf("error reading from UDP socket: %#v", err)
+				}
+
 				return
 			}
 
 			addrStr := addr.String()
 
-			if loggerDebug.Writer() != io.Discard {
+			if ldebug {
 				loggerDebug.Printf("received %d bytes from %s for %s",
 					n, addrStr, lAddr)
 			}
@@ -858,13 +888,15 @@ func forwardUDP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfi
 			if ok {
 				n, err = remote.Write(buffer[:n])
 				if err != nil {
-					loggerErr.Printf("error writing to remote UDP from %s: %s",
-						addrStr, err)
+					if lerr {
+						loggerErr.Printf("error writing to remote UDP from %s: %s",
+							addrStr, err)
+					}
 
 					continue
 				}
 
-				if loggerDebug.Writer() != io.Discard {
+				if ldebug {
 					loggerDebug.Printf("forwarded %d bytes from %s to %s",
 						n, addrStr, rAddr)
 				}
@@ -874,7 +906,10 @@ func forwardUDP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfi
 
 			remote, err = rNet.Dial(ctx, "udp", rAddr)
 			if err != nil {
-				loggerErr.Printf("error connecting to remote UDP: %s", err)
+				if linfo {
+					loggerErr.Printf("error connecting to remote UDP: %s", err)
+				}
+
 				continue
 			}
 
@@ -888,7 +923,9 @@ func forwardUDP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfi
 		}
 	}()
 
-	loggerInfo.Printf("udp forwarder started for %s -> %s", lAddr, rAddr)
+	if linfo {
+		loggerInfo.Printf("udp forwarder started for %s -> %s", lAddr, rAddr)
+	}
 
 	return nil
 }
@@ -901,28 +938,28 @@ func copyUDP(addr net.Addr, remote net.Conn, rAddr string, localConn net.PacketC
 
 		n, err := remote.Read(buffer)
 		if err != nil {
-			if loggerDebug.Writer() != io.Discard {
+			if ldebug {
 				loggerDebug.Printf("error reading from UDP socket: %s", err)
 			}
 
 			return
 		}
 
-		if loggerDebug.Writer() != io.Discard {
+		if ldebug {
 			loggerDebug.Printf("received %d bytes from %s for %s",
 				n, rAddr, remote.LocalAddr())
 		}
 
 		_, err = localConn.WriteTo(buffer[:n], addr)
 		if err != nil {
-			if loggerDebug.Writer() != io.Discard {
+			if ldebug {
 				loggerDebug.Printf("error writing to local: %s", err)
 			}
 
 			return
 		}
 
-		if loggerDebug.Writer() != io.Discard {
+		if ldebug {
 			loggerDebug.Printf("forwarded %d bytes from %s to %s",
 				n, rAddr, addr)
 		}
