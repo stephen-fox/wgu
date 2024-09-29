@@ -34,6 +34,7 @@ type Config struct {
 	Interface *Interface
 	Peers     []*Peer
 	Others    []*ini.Section
+	NamedPeer map[string]*Peer
 }
 
 // Rules partly implements the ini.Schema interface.
@@ -81,6 +82,26 @@ func (o *Config) OnSection(name string, _ string) (func() (ini.SectionSchema, er
 
 // Validate partly implements the ini.Schema interface.
 func (o *Config) Validate() error {
+	for i, peer := range o.Peers {
+		peer := peer
+
+		if peer.Name == "" {
+			continue
+		}
+
+		if o.NamedPeer == nil {
+			o.NamedPeer = make(map[string]*Peer)
+		}
+
+		_, alreadyHasIt := o.NamedPeer[peer.Name]
+		if alreadyHasIt {
+			return fmt.Errorf("peer %d already assigned name %q",
+				i, peer.Name)
+		}
+
+		o.NamedPeer[peer.Name] = peer
+	}
+
 	return nil
 }
 
@@ -285,6 +306,7 @@ type Peer struct {
 	Endpoint            *AddrPort
 	AllowedIPs          []netip.Prefix
 	PersistentKeepalive *uint64
+	Name                string
 	Others              []*ini.Param
 }
 
@@ -350,6 +372,11 @@ func (o *Peer) OnParam(paramName string) (func(*ini.Param) error, ini.SchemaRule
 
 			o.PersistentKeepalive = &i
 
+			return nil
+		}, ini.SchemaRule{Limit: 1}
+	case "Name":
+		return func(p *ini.Param) error {
+			o.Name = p.Value
 			return nil
 		}, ini.SchemaRule{Limit: 1}
 	default:

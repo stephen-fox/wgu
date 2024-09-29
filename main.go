@@ -96,6 +96,10 @@ FORWARDING MAGIC STRINGS
     us
       The first IP address of our virtual WireGuard interface
 
+    @<peer-name>
+      The address of the peer with the corresponding name according
+      to the peer's Name field
+
     peerN
       The address of peer number N as they appear in the WireGuard
       configuration file. For example, "peer0" would be the address
@@ -430,7 +434,7 @@ func mainWithError() error {
 		err = replaceWgAddrShortcuts(replaceWgAddrShortcutsArgs{
 			addr:      &forward.lAddr.addr,
 			ourWgAddr: ourWgAddrStr,
-			peers:     cfg.Peers,
+			wgConfig:  cfg,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to replace listen addr for %q - %w",
@@ -440,7 +444,7 @@ func mainWithError() error {
 		err = replaceWgAddrShortcuts(replaceWgAddrShortcutsArgs{
 			addr:      &forward.dAddr.addr,
 			ourWgAddr: ourWgAddrStr,
-			peers:     cfg.Peers,
+			wgConfig:  cfg,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to replace dial addr for %q - %w",
@@ -1168,7 +1172,7 @@ type autoPeer struct {
 type replaceWgAddrShortcutsArgs struct {
 	addr      *string
 	ourWgAddr string
-	peers     []*wgconfig.Peer
+	wgConfig  *wgconfig.Config
 }
 
 func replaceWgAddrShortcuts(args replaceWgAddrShortcutsArgs) error {
@@ -1177,7 +1181,28 @@ func replaceWgAddrShortcuts(args replaceWgAddrShortcutsArgs) error {
 		return nil
 	}
 
-	nPeers := len(args.peers)
+	if strings.HasPrefix(*args.addr, "@") {
+		name := *args.addr
+		name = name[1:]
+
+		actualPeer, hasIt := args.wgConfig.NamedPeer[name]
+		if !hasIt {
+			return fmt.Errorf("unknown peer nickname: %q", name)
+		}
+
+		addr, err := singleAddrPrefix(actualPeer.AllowedIPs)
+		if err != nil {
+			return fmt.Errorf("failed to get address for peer with nickname %q - %w",
+				name,
+				err)
+		}
+
+		*args.addr = addr.String()
+
+		return nil
+	}
+
+	nPeers := len(args.wgConfig.Peers)
 
 	if n, ok := isPeerNStr(*args.addr); ok {
 		if n >= nPeers {
@@ -1185,11 +1210,11 @@ func replaceWgAddrShortcuts(args replaceWgAddrShortcutsArgs) error {
 				n, nPeers)
 		}
 
-		addr, err := singleAddrPrefix(args.peers[n].AllowedIPs)
+		addr, err := singleAddrPrefix(args.wgConfig.Peers[n].AllowedIPs)
 		if err != nil {
 			return fmt.Errorf("failed to get address for peer index %d (%s) - %w",
 				n,
-				base64.StdEncoding.EncodeToString(args.peers[n].PublicKey[:]),
+				base64.StdEncoding.EncodeToString(args.wgConfig.Peers[n].PublicKey[:]),
 				err)
 		}
 

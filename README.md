@@ -77,6 +77,7 @@ The "listen-address" and "dial-address" values can be replaced with
 magic strings that are expanded to the corresponding address.
 
 - `us` - The first IP address of our virtual WireGuard interface
+- `@<name>` - The address of the peer with the corresponding name according                                                    to the peer's Name field Name field
 - `peerN` - The address of peer number N as they appear in the WireGuard
   configuration file. For example, "peer0" would be the address
   of the first peer in the WireGuard configuration file
