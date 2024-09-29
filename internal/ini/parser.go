@@ -351,8 +351,8 @@ func (o *parser) param(mangledName string, paramName string, paramValue string) 
 	paramSchemaFn, rule := o.currSectionObj.OnParam(mangledName)
 
 	if paramSchemaFn == nil && !o.rules.AllowUnknownParams {
-		return fmt.Errorf("line %d - unknown parameter: %q",
-			o.line, paramName)
+		return fmt.Errorf("line %d, section: %q - unknown parameter: %q",
+			o.line, o.currSectionName, paramName)
 	}
 
 	o.seenCurrSectionParams[mangledName]++
@@ -360,12 +360,12 @@ func (o *parser) param(mangledName string, paramName string, paramValue string) 
 	numInst := o.seenCurrSectionParams[mangledName]
 	if rule.Limit > 0 && numInst > rule.Limit {
 		if rule.Limit == 1 {
-			return fmt.Errorf("line %d - %q param can only be specified once",
-				o.line, paramName)
+			return fmt.Errorf("line %d, section: %q - %q param can only be specified once",
+				o.line, o.currSectionName, paramName)
 		}
 
-		return fmt.Errorf("line %d - only %d %q params may be specified (current is %d)",
-			o.line, rule.Limit, paramName, numInst)
+		return fmt.Errorf("line %d, section: %q - only %d %q params may be specified (current is %d)",
+			o.line, o.currSectionName, rule.Limit, paramName, numInst)
 	}
 
 	err := paramSchemaFn(&Param{
@@ -373,8 +373,8 @@ func (o *parser) param(mangledName string, paramName string, paramValue string) 
 		Value: paramValue,
 	})
 	if err != nil {
-		return fmt.Errorf("line %d - failed to set param %q - %w",
-			o.line, paramName, err)
+		return fmt.Errorf("line %d, section: %q - failed to set param %q - %w",
+			o.line, o.currSectionName, paramName, err)
 	}
 
 	return nil
