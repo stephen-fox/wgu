@@ -81,8 +81,6 @@ magic strings that are expanded to the corresponding address.
 - `peerN` - The address of peer number N as they appear in the WireGuard
   configuration file. For example, "peer0" would be the address
   of the first peer in the WireGuard configuration file
-- `<pub-base64>` - The address of the peer with the corresponding
-  base64-encoded public key (for use with automatic address planning mode)
 
 ## Helper commands
 

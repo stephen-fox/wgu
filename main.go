@@ -105,10 +105,6 @@ FORWARDING MAGIC STRINGS
       configuration file. For example, "peer0" would be the address
       of the first peer in the WireGuard configuration file
 
-    <pub-base64>
-      The address of the peer with the corresponding base64-encoded
-      public key (for use with automatic address planning mode)
-
 AUTOMATIC ADDRESS PLANNING MODE
   If the -` + autoAddressPlanningArg + ` argument is specified, then each peer's virtual WireGuard
   address is generated from its public key in the form of an IPv6 address.
@@ -1223,16 +1219,6 @@ func replaceWgAddrShortcuts(args replaceWgAddrShortcutsArgs) error {
 		return nil
 	}
 
-	if publicKey, ok := isWgPublicKeyStr(*args.addr); ok {
-		addr, err := publicKeyToV6Addr(publicKey)
-		if err != nil {
-			return fmt.Errorf("failed to convert peer public key to v6 addr: %q - %w",
-				*args.addr, err)
-		}
-
-		*args.addr = addr.String()
-	}
-
 	return nil
 }
 
@@ -1262,23 +1248,6 @@ func singleAddrPrefix(prefixes []netip.Prefix) (netip.Addr, error) {
 	}
 
 	return netip.Addr{}, errors.New("AllowedIPs missing single address entry")
-}
-
-func isWgPublicKeyStr(str string) ([]byte, bool) {
-	if len(str) < device.NoisePublicKeySize {
-		return nil, false
-	}
-
-	pub, err := base64.StdEncoding.DecodeString(str)
-	if err != nil {
-		return nil, false
-	}
-
-	if len(pub) != device.NoisePublicKeySize {
-		return nil, false
-	}
-
-	return pub, true
 }
 
 func publicKeyToV6Addr(pub []byte) (netip.Addr, error) {
