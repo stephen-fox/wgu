@@ -454,7 +454,7 @@ func mainWithError() error {
 
 	ipcConfig, err := cfg.IPCConfigWithoutDnsPeers()
 	if err != nil {
-		return fmt.Errorf("failed to convert config to ipc format - %w", err)
+		return fmt.Errorf("failed to convert config to wg ipc format - %w", err)
 	}
 
 	tun, tnet, err := netstack.CreateNetTUN(
@@ -463,7 +463,7 @@ func mainWithError() error {
 		*cfg.Interface.MTU,
 	)
 	if err != nil {
-		return fmt.Errorf("Error creating tunnel interface: %s", err)
+		return fmt.Errorf("failed to create wg tunnel interface: %w", err)
 	}
 
 	dev := device.NewDevice(tun, conn.NewDefaultBind(), &device.Logger{
@@ -473,12 +473,12 @@ func mainWithError() error {
 
 	err = dev.IpcSet(ipcConfig)
 	if err != nil {
-		return fmt.Errorf("Error setting device configuration: %s", err)
+		return fmt.Errorf("failed to set wg device configuration - %w", err)
 	}
 
 	err = dev.Up()
 	if err != nil {
-		return fmt.Errorf("Error bringing up device: %s", err)
+		return fmt.Errorf("failed to bring up wg device - %w", err)
 	}
 	defer dev.Down()
 
@@ -753,10 +753,8 @@ func forwardTCP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfi
 	go func() {
 		<-ctx.Done()
 
-		if linfo {
-			loggerInfo.Printf("stopping TCP forwarder for %s -> %s...",
-				lAddr, dAddr)
-		}
+		loggerInfo.Printf("stopping tcp forwarder for %s -> %s...",
+			lAddr, dAddr)
 
 		listener.Close()
 	}()
@@ -784,9 +782,7 @@ func forwardTCP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfi
 		}
 	}()
 
-	if linfo {
-		loggerInfo.Printf("TCP forwarder started for %s -> %s", lAddr, dAddr)
-	}
+	loggerInfo.Printf("tcp forwarder started for %s -> %s", lAddr, dAddr)
 
 	return nil
 }
@@ -848,9 +844,7 @@ func forwardUDP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfi
 	go func() {
 		<-ctx.Done()
 
-		if linfo {
-			loggerInfo.Printf("stopping UDP forwarder for %s -> %s", lAddr, rAddr)
-		}
+		loggerInfo.Printf("stopping UDP forwarder for %s -> %s...", lAddr, rAddr)
 
 		remoteConns.do(func(m map[string]net.Conn) {
 			for addr, c := range m {
@@ -906,7 +900,7 @@ func forwardUDP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfi
 
 			remote, err = rNet.Dial(ctx, "udp", rAddr)
 			if err != nil {
-				if linfo {
+				if lerr {
 					loggerErr.Printf("error connecting to remote UDP: %s", err)
 				}
 
@@ -923,9 +917,7 @@ func forwardUDP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfi
 		}
 	}()
 
-	if linfo {
-		loggerInfo.Printf("udp forwarder started for %s -> %s", lAddr, rAddr)
-	}
+	loggerInfo.Printf("udp forwarder started for %s -> %s", lAddr, rAddr)
 
 	return nil
 }
