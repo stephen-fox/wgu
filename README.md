@@ -221,8 +221,8 @@ To create the tunnel, execute the following commands in two
 different shells:
 
 ```console
-$ wgu -config peer0/wgu.conf
-$ wgu -config peer1/wgu.conf
+$ wgu up peer0/wgu.conf
+$ wgu up peer1/wgu.conf
 ```
 
 Finally, in two different shells, test the tunnel using nc:
@@ -284,8 +284,8 @@ To create the tunnel *and* enable automatic address planning,
 execute the following commands in two different shells:
 
 ```console
-$ wgu -config peer0/wgu.conf -A
-$ wgu -config peer1/wgu.conf -A
+$ wgu up -A peer0/wgu.conf
+$ wgu up -A peer1/wgu.conf
 ```
 
 Finally, in two different shells, test the tunnel using nc:

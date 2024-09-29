@@ -35,15 +35,13 @@ import (
 const (
 	appName = "wgu"
 
-	usage = appName + `
-
-SYNOPSIS
-  ` + appName + ` -` + configPathArg + ` config-path [options]
+	usage = `SYNOPSIS
   ` + appName + ` ` + helpCmd + `
   ` + appName + ` ` + genconfigCmd + ` [dir]
   ` + appName + ` ` + pubkeyCmd + ` < private-key-file
   ` + appName + ` ` + pubkeyFromConfigCmd + ` < public-key-file
   ` + appName + ` ` + pubkeyAddrCmd + ` < public-key-file
+  ` + appName + ` ` + upCmd + ` [options] CONFIG-PATH
 
 DESCRIPTION
   wgu (WireGuard User Space) is a fork of Jonathan Giannuzzi's wgfwd.
@@ -52,7 +50,7 @@ DESCRIPTION
   forwarding specifications. Each specification tells wgu where to listen
   for incoming connections and where to forward the connections to.
 
-  For helper command documentation and configuration examples, please execute:
+  For detailed documentation and configuration examples, please execute:
     ` + appName + ` ` + helpCmd + `
 
   To generate a basic configuration file and private key, please execute:
@@ -61,7 +59,7 @@ DESCRIPTION
 OPTIONS
 `
 
-	help = `HELPER COMMANDS
+	helpLong = `COMMANDS
 
   ` + helpCmd + `               - Display configuration syntax help and examples
   ` + genconfigCmd + ` [dir]    - Generate an example configuration file and private key.
@@ -76,6 +74,7 @@ OPTIONS
                        its private key, and write the public key to stdout
   ` + pubkeyAddrCmd + `        - (automatic address planning mode) - Read a public key
                        from stdin and convert it to an IPv6 address
+  ` + upCmd + ` CONFIG-PATH     - Start the virtual WireGuard interface and forwarders
 
 FORWARDING SPECIFICATION
   Port forwards are defined in the [Forwards] section using the following
@@ -158,8 +157,8 @@ HELLO WORLD EXAMPLE
 
   To create the tunnel, execute the following commands in two
   different shells:
-    $ wgu -` + configPathArg + ` peer0/wgu.conf
-    $ wgu -` + configPathArg + ` peer1/wgu.conf
+    $ wgu ` + upCmd + ` peer0/wgu.conf
+    $ wgu ` + upCmd + ` peer1/wgu.conf
 
   Finally, in two different shells, test the tunnel using nc:
     $ nc -l 2000
@@ -202,8 +201,8 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
 
   To create the tunnel *and* enable automatic address planning,
   execute the following commands in two different shells:
-    $ wgu -` + configPathArg + ` peer0/wgu.conf -` + autoAddressPlanningArg + `
-    $ wgu -` + configPathArg + ` peer1/wgu.conf -` + autoAddressPlanningArg + `
+    $ wgu ` + upCmd + ` -` + autoAddressPlanningArg + ` peer0/wgu.conf
+    $ wgu ` + upCmd + ` -` + autoAddressPlanningArg + ` peer1/wgu.conf
 
   Finally, in two different shells, test the tunnel using nc:
     $ nc -l 2000
@@ -216,11 +215,11 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
 	pubkeyCmd           = "pubkey"
 	pubkeyFromConfigCmd = "pubkey-from-config"
 	pubkeyAddrCmd       = "pubkey-addr"
+	upCmd               = "up"
 
 	logLevelArg            = "L"
 	noLogTimestampsArg     = "T"
 	autoAddressPlanningArg = "A"
-	configPathArg          = "config"
 	helpArg                = "h"
 	tcpArg                 = "tcp"
 	udpArg                 = "udp"
@@ -253,7 +252,186 @@ func main() {
 }
 
 func mainWithError() error {
-	help := flag.Bool(
+	flagSet := flag.CommandLine
+
+	help := flagSet.Bool(
+		helpArg,
+		false,
+		"Display this information")
+
+	flagSet.Parse(os.Args[1:])
+
+	// Disable annoying flag.PrintDefaults on flag parse error.
+	flagSet.Usage = func() {}
+
+	flagSet.Parse(os.Args[1:])
+
+	if *help {
+		flagSet.Output().Write([]byte(usage))
+		flagSet.PrintDefaults()
+		os.Exit(1)
+	}
+
+	command := flagSet.Arg(0)
+
+	switch command {
+	case helpCmd:
+		os.Stdout.WriteString(helpLong)
+	case genconfigCmd:
+		return genConfig()
+	case genkeyCmd:
+		privateKey, err := wgkeys.NewNoisePrivateKey()
+		if err != nil {
+			return fmt.Errorf("failed to generate private key - %w", err)
+		}
+
+		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(privateKey[:]) + "\n")
+	case pubkeyCmd:
+		privateKeyB64, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return err
+		}
+
+		privateKey, err := wgkeys.NoisePrivateKeyFromBase64(string(privateKeyB64))
+		if err != nil {
+			return fmt.Errorf("failed to parse private key - %w", err)
+		}
+
+		pub := wgkeys.NoisePublicKeyFromPrivate(privateKey)
+
+		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(pub[:]) + "\n")
+	case pubkeyFromConfigCmd:
+		cfg, err := wgconfig.Parse(os.Stdin)
+		if err != nil {
+			return err
+		}
+
+		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(
+			cfg.Interface.PublicKey[:]) + "\n")
+	case pubkeyAddrCmd:
+		publicKeyRaw, err := io.ReadAll(base64.NewDecoder(base64.StdEncoding, os.Stdin))
+		if err != nil {
+			return err
+		}
+
+		publicKey, err := wgkeys.NoisePublicKeyFromBytes(publicKeyRaw)
+		if err != nil {
+			return err
+		}
+
+		addr, err := publicKeyToV6Addr(publicKey[:])
+		if err != nil {
+			return err
+		}
+
+		os.Stdout.WriteString(addr.String() + "\n")
+	case upCmd:
+		return up()
+	default:
+		return fmt.Errorf("unknown command: %q", command)
+	}
+
+	return nil
+}
+
+func genConfig() error {
+	var configDirPath string
+	var privateKeyPathInConfig string
+	const privateKeyFileName = "private-key"
+
+	if flag.NArg() > 1 {
+		var err error
+		configDirPath, err = filepath.Abs(flag.Arg(1))
+		if err != nil {
+			return err
+		}
+
+		privateKeyPathInConfig = filepath.Join(configDirPath, privateKeyFileName)
+	} else {
+		homeDirPath, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+
+		configDirPath = filepath.Join(homeDirPath, ".wgu")
+
+		privateKeyPathInConfig = "~/.wgu/" + privateKeyFileName
+	}
+
+	err := os.MkdirAll(configDirPath, 0o700)
+	if err != nil {
+		return err
+	}
+
+	err = os.Chmod(configDirPath, 0o700)
+	if err != nil {
+		return err
+	}
+
+	configFilePath := filepath.Join(configDirPath, appName+".conf")
+
+	_, statErr := os.Stat(configFilePath)
+	if statErr == nil {
+		return fmt.Errorf("a configuration file already exists at: '%s'",
+			configFilePath)
+	}
+
+	privateKeyFilePath := filepath.Join(configDirPath, privateKeyFileName)
+
+	_, statErr = os.Stat(privateKeyFilePath)
+	if statErr == nil {
+		return fmt.Errorf("a private key file already exists at: '%s'",
+			privateKeyFilePath)
+	}
+
+	err = os.WriteFile(configFilePath, []byte(`[Interface]
+PrivateKey = file://`+privateKeyPathInConfig+`
+# Optionally, allow other peers to connect to us:
+# ListenPort = 4141
+
+# Note: For more information, please execute: "`+appName+` `+helpCmd+`"
+#
+# The following forwarding example sends TCP port 2222 on your machine
+# to the WireGuard peer with virtual address 10.0.0.2 on TCP port 22 (ssh):
+#
+# [Forwards]
+# TCP = host 127.0.0.1:3000 -> tun @peer0:2000
+# TCP = tun @us:2000 -> host 127.0.0.1:2000
+
+# Example peer definition:
+#
+# [Peer]
+# Name = peer0
+# PublicKey = <public-key>
+# Endpoint = 192.168.0.1:4141
+# PersistentKeepalive = 25
+# AllowedIPs = 192.168.0.2/32
+`), 0o600)
+
+	privateKey, err := wgkeys.NewNoisePrivateKey()
+	if err != nil {
+		return fmt.Errorf("failed to generate private key - %w", err)
+	}
+
+	err = os.WriteFile(
+		privateKeyFilePath,
+		[]byte(base64.StdEncoding.EncodeToString(privateKey[:])+"\n"),
+		0o600,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to write private key file - %w", err)
+	}
+
+	os.Stdout.WriteString(base64.StdEncoding.EncodeToString(
+		wgkeys.NoisePublicKeyFromPrivate(privateKey)[:]) + "\n")
+
+	return nil
+}
+
+func up() error {
+	flagSet := flag.NewFlagSet(upCmd, flag.ExitOnError)
+
+	help := flagSet.Bool(
 		helpArg,
 		false,
 		"Display this information")
@@ -264,7 +442,7 @@ func mainWithError() error {
 		transport:     "tcp",
 		strsToConfigs: forwards,
 	}
-	flag.Var(
+	flagSet.Var(
 		&tcpForwards,
 		tcpArg,
 		"TCP port forward `specification` (see "+helpArgv+" for details)")
@@ -273,60 +451,54 @@ func mainWithError() error {
 		transport:     "udp",
 		strsToConfigs: forwards,
 	}
-	flag.Var(
+	flagSet.Var(
 		&udpForwards,
 		udpArg,
 		"UDP port forward `specification` (see "+helpArgv+" for details)")
 
-	flag.DurationVar(
+	flagSet.DurationVar(
 		&udpTimeout,
 		udpTimeoutArg,
 		2*time.Minute,
 		"UDP timeout")
 
-	configPath := flag.String(
-		configPathArg,
-		"",
-		"Configuration file `path`")
-
-	autoAddrPlanning := flag.Bool(
+	autoAddrPlanning := flagSet.Bool(
 		autoAddressPlanningArg,
 		false,
 		"Enable automatic address planning mode (see "+helpArgv+" for details)")
 
-	writeConfig := flag.Bool(
+	writeConfig := flagSet.Bool(
 		"write-config",
 		false,
 		"")
 
-	writeIpcConfig := flag.Bool(
+	writeIpcConfig := flagSet.Bool(
 		"write-ipc-config",
 		false,
 		"")
 
-	logLevelString := flag.String(
+	logLevelString := flagSet.String(
 		logLevelArg,
 		"info",
 		"Log level (possible values: 'error', 'info', 'debug')")
 
-	noLogTimestamps := flag.Bool(
+	noLogTimestamps := flagSet.Bool(
 		noLogTimestampsArg,
 		false,
 		"Disable logging timestamps")
 
 	// Disable annoying flag.PrintDefaults on flag parse error.
-	flag.Usage = func() {}
+	flagSet.Usage = func() {}
 
-	flag.Parse()
+	flagSet.Parse(os.Args[2:])
 
 	if *help {
-		flag.CommandLine.Output().Write([]byte(usage))
-		flag.PrintDefaults()
+		flagSet.PrintDefaults()
 		os.Exit(1)
 	}
 
-	if flag.NArg() > 0 {
-		return helperCommand(flag.Arg(0))
+	if flagSet.NArg() > 1 {
+		return errors.New("please specify only one config file path")
 	}
 
 	if !*noLogTimestamps {
@@ -345,17 +517,21 @@ func mainWithError() error {
 	case "error":
 		lerr = true
 		loggerErr = log.New(log.Writer(), "[error] ", log.Flags()|log.Lmsgprefix)
+	default:
+		return fmt.Errorf("unknown log level: %q", *logLevelString)
 	}
 
+	configPath := flagSet.Arg(0)
+
 	var configFD *os.File
-	switch *configPath {
+	switch configPath {
 	case "":
-		return fmt.Errorf("please specify a config path using -%s", configPathArg)
+		return errors.New("please specify a config file path as the last argument")
 	case "-":
 		configFD = os.Stdin
 	default:
 		var err error
-		configFD, err = os.Open(*configPath)
+		configFD, err = os.Open(configPath)
 		if err != nil {
 			return err
 		}
@@ -499,153 +675,6 @@ func mainWithError() error {
 	case err = <-dnsMonitorErrs:
 		return fmt.Errorf("failed to monitor peer's dns changes - %w", err)
 	}
-}
-
-func helperCommand(command string) error {
-	switch command {
-	case helpCmd:
-		os.Stdout.WriteString(help)
-	case genconfigCmd:
-		var configDirPath string
-		var privateKeyPathInConfig string
-		const privateKeyFileName = "private-key"
-
-		if flag.NArg() > 1 {
-			var err error
-			configDirPath, err = filepath.Abs(flag.Arg(1))
-			if err != nil {
-				return err
-			}
-
-			privateKeyPathInConfig = filepath.Join(configDirPath, privateKeyFileName)
-		} else {
-			homeDirPath, err := os.UserHomeDir()
-			if err != nil {
-				return err
-			}
-
-			configDirPath = filepath.Join(homeDirPath, ".wgu")
-
-			privateKeyPathInConfig = "~/.wgu/" + privateKeyFileName
-		}
-
-		err := os.MkdirAll(configDirPath, 0o700)
-		if err != nil {
-			return err
-		}
-
-		err = os.Chmod(configDirPath, 0o700)
-		if err != nil {
-			return err
-		}
-
-		configFilePath := filepath.Join(configDirPath, appName+".conf")
-
-		_, statErr := os.Stat(configFilePath)
-		if statErr == nil {
-			return fmt.Errorf("a configuration file already exists at: '%s'",
-				configFilePath)
-		}
-
-		privateKeyFilePath := filepath.Join(configDirPath, privateKeyFileName)
-
-		_, statErr = os.Stat(privateKeyFilePath)
-		if statErr == nil {
-			return fmt.Errorf("a private key file already exists at: '%s'",
-				privateKeyFilePath)
-		}
-
-		err = os.WriteFile(configFilePath, []byte(`[Interface]
-PrivateKey = file://`+privateKeyPathInConfig+`
-# Optionally, allow other peers to connect to us:
-# ListenPort = 4141
-
-# Note: For more information, please execute: "`+appName+` `+helpCmd+`"
-#
-# The following forwarding example sends TCP port 2222 on your machine
-# to the WireGuard peer with virtual address 10.0.0.2 on TCP port 22 (ssh):
-#
-# [Forwards]
-# TCP = host 127.0.0.1:3000 -> tun @peer0:2000
-# TCP = tun @us:2000 -> host 127.0.0.1:2000
-
-# Example peer definition:
-#
-# [Peer]
-# Name = peer0
-# PublicKey = <public-key>
-# Endpoint = 192.168.0.1:4141
-# PersistentKeepalive = 25
-# AllowedIPs = 192.168.0.2/32
-`), 0o600)
-
-		privateKey, err := wgkeys.NewNoisePrivateKey()
-		if err != nil {
-			return fmt.Errorf("failed to generate private key - %w", err)
-		}
-
-		err = os.WriteFile(
-			privateKeyFilePath,
-			[]byte(base64.StdEncoding.EncodeToString(privateKey[:])+"\n"),
-			0o600,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to write private key file - %w", err)
-		}
-
-		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(
-			wgkeys.NoisePublicKeyFromPrivate(privateKey)[:]) + "\n")
-	case genkeyCmd:
-		privateKey, err := wgkeys.NewNoisePrivateKey()
-		if err != nil {
-			return fmt.Errorf("failed to generate private key - %w", err)
-		}
-
-		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(privateKey[:]) + "\n")
-	case pubkeyCmd:
-		privateKeyB64, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return err
-		}
-
-		privateKey, err := wgkeys.NoisePrivateKeyFromBase64(string(privateKeyB64))
-		if err != nil {
-			return fmt.Errorf("failed to parse private key - %w", err)
-		}
-
-		pub := wgkeys.NoisePublicKeyFromPrivate(privateKey)
-
-		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(pub[:]) + "\n")
-	case pubkeyFromConfigCmd:
-		cfg, err := wgconfig.Parse(os.Stdin)
-		if err != nil {
-			return err
-		}
-
-		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(
-			cfg.Interface.PublicKey[:]) + "\n")
-	case pubkeyAddrCmd:
-		publicKeyRaw, err := io.ReadAll(base64.NewDecoder(base64.StdEncoding, os.Stdin))
-		if err != nil {
-			return err
-		}
-
-		publicKey, err := wgkeys.NoisePublicKeyFromBytes(publicKeyRaw)
-		if err != nil {
-			return err
-		}
-
-		addr, err := publicKeyToV6Addr(publicKey[:])
-		if err != nil {
-			return err
-		}
-
-		os.Stdout.WriteString(addr.String() + "\n")
-	default:
-		return fmt.Errorf("unknown helper command: %q", command)
-	}
-
-	return nil
 }
 
 type netOp interface {
