@@ -1008,16 +1008,6 @@ func (o addrPort) String() string {
 	return net.JoinHostPort(o.addr, strconv.Itoa(int(o.port)))
 }
 
-func (o addrPort) toAddrPort() (netip.AddrPort, error) {
-	// TODO: Name resolution.
-	addr, err := netip.ParseAddr(o.addr)
-	if err != nil {
-		return netip.AddrPort{}, err
-	}
-
-	return netip.AddrPortFrom(addr, o.port), nil
-}
-
 type forwardFlag struct {
 	transport     string
 	strsToConfigs map[string]*forwardConfig
@@ -1272,44 +1262,4 @@ func publicKeyToV6Addr(pub []byte) (netip.Addr, error) {
 	}
 
 	return addr, nil
-}
-
-func isLocalAddr(addr netip.Addr) (bool, error) {
-	ifs, err := net.Interfaces()
-	if err != nil {
-		return false, err
-	}
-
-	for _, iface := range ifs {
-		hasIt, err := ifaceHasAddr(iface, addr)
-		if err != nil {
-			return false, err
-		}
-
-		if hasIt {
-			return true, nil
-		}
-	}
-
-	return false, nil
-}
-
-func ifaceHasAddr(iface net.Interface, addr netip.Addr) (bool, error) {
-	addrs, err := iface.Addrs()
-	if err != nil {
-		return false, err
-	}
-
-	for _, ifAddrStr := range addrs {
-		ifAddr, err := netip.ParseAddr(ifAddrStr.String())
-		if err != nil {
-			return false, err
-		}
-
-		if ifAddr == addr {
-			return true, nil
-		}
-	}
-
-	return false, nil
 }
