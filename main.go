@@ -832,55 +832,127 @@ func forwardUDP(ctx context.Context, waitGroup *sync.WaitGroup, lNet netOp, lAdd
 				return
 			}
 
-			loggerDebug.Printf("received %d bytes from %s for %s", n, addr, lAddr)
+			addrStr := addr.String()
 
-			remote, ok := remoteConns[addr.String()]
-			if !ok {
-				remote, err = rNet.Dial(ctx, "udp", rAddr)
+			if loggerDebug.Writer() != io.Discard {
+				loggerDebug.Printf("received %d bytes from %s for %s",
+					n, addrStr, lAddr)
+			}
+
+			remote, ok := remoteConns.lookup(addrStr)
+			if ok {
+				n, err = remote.Write(buffer[:n])
 				if err != nil {
-					loggerErr.Printf("error connecting to remote UDP: %s", err)
+					loggerErr.Printf("error writing to remote UDP from %s: %s",
+						addrStr, err)
+
 					continue
 				}
 
-				remoteConns[addr.String()] = remote
+				if loggerDebug.Writer() != io.Discard {
+					loggerDebug.Printf("forwarded %d bytes from %s to %s",
+						n, addrStr, rAddr)
+				}
 
-				go func() {
-					defer delete(remoteConns, addr.String())
-
-					buffer := make([]byte, 1392)
-					for {
-						remote.SetReadDeadline(time.Now().Add(udpTimeout))
-						n, err = remote.Read(buffer)
-						if err != nil {
-							loggerDebug.Printf("error reading from UDP socket: %s", err)
-							return
-						}
-
-						loggerDebug.Printf("received %d bytes from %s for %s", n, rAddr, remote.LocalAddr())
-						_, err = localConn.WriteTo(buffer[:n], addr)
-						if err != nil {
-							loggerDebug.Printf("error writing to local: %s", err)
-							return
-						}
-
-						loggerDebug.Printf("forwarded %d bytes from %s to %s", n, rAddr, addr)
-					}
-				}()
-			}
-
-			n, err = remote.Write(buffer[:n])
-			if err != nil {
-				loggerErr.Printf("error writing to remote UDP from %s: %s", addr, err)
 				continue
 			}
 
-			loggerDebug.Printf("forwarded %d bytes from %s to %s", n, addr, rAddr)
+			remote, err = rNet.Dial(ctx, "udp", rAddr)
+			if err != nil {
+				loggerErr.Printf("error connecting to remote UDP: %s", err)
+				continue
+			}
+
+			remoteConns.set(addrStr, remote)
+
+			go func() {
+				defer remoteConns.delete(addrStr)
+
+				copyUDP(addr, remote, rAddr, localConn)
+			}()
 		}
 	}()
 
 	loggerInfo.Printf("udp forwarder started for %s -> %s", lAddr, rAddr)
 
 	return nil
+}
+
+func copyUDP(addr net.Addr, remote net.Conn, rAddr string, localConn net.PacketConn) {
+	buffer := make([]byte, 1392)
+
+	for {
+		remote.SetReadDeadline(time.Now().Add(udpTimeout))
+
+		n, err := remote.Read(buffer)
+		if err != nil {
+			if loggerDebug.Writer() != io.Discard {
+				loggerDebug.Printf("error reading from UDP socket: %s", err)
+			}
+
+			return
+		}
+
+		if loggerDebug.Writer() != io.Discard {
+			loggerDebug.Printf("received %d bytes from %s for %s",
+				n, rAddr, remote.LocalAddr())
+		}
+
+		_, err = localConn.WriteTo(buffer[:n], addr)
+		if err != nil {
+			if loggerDebug.Writer() != io.Discard {
+				loggerDebug.Printf("error writing to local: %s", err)
+			}
+
+			return
+		}
+
+		if loggerDebug.Writer() != io.Discard {
+			loggerDebug.Printf("forwarded %d bytes from %s to %s",
+				n, rAddr, addr)
+		}
+	}
+}
+
+func newConnMap() *connMap {
+	return &connMap{
+		conns: make(map[string]net.Conn),
+	}
+}
+
+type connMap struct {
+	rwMu  sync.RWMutex
+	conns map[string]net.Conn
+}
+
+func (o *connMap) set(addr string, conn net.Conn) {
+	o.rwMu.Lock()
+	defer o.rwMu.Unlock()
+
+	o.conns[addr] = conn
+}
+
+func (o *connMap) do(fn func(m map[string]net.Conn)) {
+	o.rwMu.Lock()
+	defer o.rwMu.Unlock()
+
+	fn(o.conns)
+}
+
+func (o *connMap) lookup(addr string) (net.Conn, bool) {
+	o.rwMu.RLock()
+	defer o.rwMu.RUnlock()
+
+	conn, ok := o.conns[addr]
+
+	return conn, ok
+}
+
+func (o *connMap) delete(addr string) {
+	o.rwMu.Lock()
+	defer o.rwMu.Unlock()
+
+	delete(o.conns, addr)
 }
 
 type addrPort struct {
