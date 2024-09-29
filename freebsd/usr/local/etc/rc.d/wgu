@@ -12,7 +12,7 @@ desc="${name}"
 rcvar="${name}_enable"
 pidfile="/var/run/${name}.pid"
 command="/usr/sbin/daemon"
-command_args="-u _${name} -T ${name} -p ${pidfile} -- ${procname} -config /etc/wgu/wgu.conf -T"
+command_args="-u _${name} -T ${name} -p ${pidfile} -- ${procname} up -T /etc/wgu/wgu.conf"
 
 load_rc_config $name
 run_rc_command "$@"
