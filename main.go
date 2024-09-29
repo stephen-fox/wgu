@@ -1181,7 +1181,8 @@ func replaceWgAddrShortcuts(args replaceWgAddrShortcutsArgs) error {
 
 	if n, ok := isPeerNStr(*args.addr); ok {
 		if n >= nPeers {
-			return fmt.Errorf("peer index %d was specified but only %d peers are declared", n, nPeers)
+			return fmt.Errorf("peer index %d was specified but only %d peers are declared",
+				n, nPeers)
 		}
 
 		addr, err := singleAddrPrefix(args.peers[n].AllowedIPs)
