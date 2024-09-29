@@ -771,40 +771,40 @@ func forwardTCP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfi
 	return nil
 }
 
-func dialAndCopyTCP(ctx context.Context, conn net.Conn, rNet netOp, rAddr string) {
-	remote, err := rNet.Dial(ctx, "tcp", rAddr)
+func dialAndCopyTCP(ctx context.Context, src net.Conn, dNet netOp, dstAddr string) {
+	defer src.Close()
+
+	dst, err := dNet.Dial(ctx, "tcp", dstAddr)
 	if err != nil {
-		loggerErr.Printf("Error connecting to remote TCP: %s", err)
-		conn.Close()
+		loggerErr.Printf("error connecting to remote TCP: %s", err)
 		return
 	}
-	loggerDebug.Printf("TCP connection forwarded from %s to %s", conn.RemoteAddr(), rAddr)
+	defer dst.Close()
 
-	iwg := &sync.WaitGroup{}
-	iwg.Add(2)
+	loggerDebug.Printf("TCP connection forwarded from %s to %s",
+		src.RemoteAddr(), dstAddr)
+
+	done := make(chan string, 2)
 
 	go func() {
-		defer iwg.Done()
-		defer remote.Close()
-		defer conn.Close()
-		_, err := io.Copy(remote, conn)
-		if err != nil && err != io.EOF {
-			loggerDebug.Printf("Error copying from %s: %s", conn.RemoteAddr(), err)
-		}
+		_, err := io.Copy(dst, src)
+		done <- fmt.Sprintf("error copying from %s: %v",
+			src.RemoteAddr(), err)
 	}()
 
 	go func() {
-		defer iwg.Done()
-		defer remote.Close()
-		defer conn.Close()
-		_, err := io.Copy(conn, remote)
-		if err != nil {
-			loggerDebug.Printf("Error copying to %s: %s", conn.RemoteAddr(), err)
-		}
+		_, err := io.Copy(src, dst)
+		done <- fmt.Sprintf("error copying to %s: %v",
+			src.RemoteAddr(), err)
 	}()
 
-	iwg.Wait()
-	loggerDebug.Printf("Connection from %s closed", conn.RemoteAddr())
+	select {
+	case <-ctx.Done():
+		return
+	case reason := <-done:
+		loggerDebug.Printf("connection from %s closed: %s",
+			src.RemoteAddr(), reason)
+	}
 }
 
 func forwardUDP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfig, lNet netOp, rNet netOp) error {
