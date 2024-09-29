@@ -557,14 +557,16 @@ PrivateKey = file://`+privateKeyPathInConfig+`
 # to the WireGuard peer with virtual address 10.0.0.2 on TCP port 22 (ssh):
 #
 # [Forwards]
-# TCP = host 127.0.0.1:2222 -> tun 10.0.0.2:22
+# TCP = host 127.0.0.1:3000 -> tun peer0:2000
+# TCP = tun us:2000 -> host 127.0.0.1:2000
 
 # Example peer definition:
 #
 # [Peer]
 # PublicKey = <public-key>
-# Endpoint = <address>:<port>
+# Endpoint = 192.168.0.1:4141
 # PersistentKeepalive = 25
+# AllowedIPs = 192.168.0.2/32
 `), 0o600)
 
 		privateKey, err := wgkeys.NewNoisePrivateKey()
