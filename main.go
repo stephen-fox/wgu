@@ -93,7 +93,7 @@ FORWARDING MAGIC STRINGS
   The "listen-address" and "dial-address" values can be replaced with
   magic strings that are expanded to the corresponding address.
 
-    us
+    @us
       The first IP address of our virtual WireGuard interface
 
     @<peer-name>
@@ -130,7 +130,7 @@ HELLO WORLD EXAMPLE
     Address = 192.168.0.1/24
 
     [Forwards]
-    TCP = tun us:2000 -> host 127.0.0.1:2000
+    TCP = tun @us:2000 -> host 127.0.0.1:2000
 
     [Peer]
     Name = peer1
@@ -177,7 +177,7 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
     ListenPort = 4141
 
     [Forwards]
-    TCP = tun us:2000 -> host 127.0.0.1:2000
+    TCP = tun @us:2000 -> host 127.0.0.1:2000
 
     [Peer]
     Name = peer1
@@ -562,7 +562,7 @@ PrivateKey = file://`+privateKeyPathInConfig+`
 #
 # [Forwards]
 # TCP = host 127.0.0.1:3000 -> tun @peer0:2000
-# TCP = tun us:2000 -> host 127.0.0.1:2000
+# TCP = tun @us:2000 -> host 127.0.0.1:2000
 
 # Example peer definition:
 #
@@ -1168,7 +1168,7 @@ type replaceWgAddrShortcutsArgs struct {
 }
 
 func replaceWgAddrShortcuts(args replaceWgAddrShortcutsArgs) error {
-	if *args.addr == "us" {
+	if *args.addr == "@us" {
 		*args.addr = args.ourWgAddr
 		return nil
 	}

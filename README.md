@@ -192,7 +192,7 @@ ListenPort = 4141
 Address = 192.168.0.1/24
 
 [Forwards]
-TCP = tun us:2000 -> host 127.0.0.1:2000
+TCP = tun @us:2000 -> host 127.0.0.1:2000
 
 [Peer]
 Name = peer1
@@ -258,7 +258,7 @@ PrivateKey = file:///tmp/example/peer0/private-key
 ListenPort = 4141
 
 [Forwards]
-TCP = tun us:2000 -> host 127.0.0.1:2000
+TCP = tun @us:2000 -> host 127.0.0.1:2000
 
 [Peer]
 Name = peer1
