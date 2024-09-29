@@ -77,10 +77,8 @@ The "listen-address" and "dial-address" values can be replaced with
 magic strings that are expanded to the corresponding address.
 
 - `us` - The first IP address of our virtual WireGuard interface
-- `@<name>` - The address of the peer with the corresponding name according                                                    to the peer's Name field Name field
-- `peerN` - The address of peer number N as they appear in the WireGuard
-  configuration file. For example, "peer0" would be the address
-  of the first peer in the WireGuard configuration file
+- `@<name>` - The address of the peer with the corresponding name according
+  to the peer's Name field Name field
 
 ## Helper commands
 
@@ -196,8 +194,8 @@ Address = 192.168.0.1/24
 [Forwards]
 TCP = tun us:2000 -> host 127.0.0.1:2000
 
-# peer1:
 [Peer]
+Name = peer1
 PublicKey = 92Ur/x6rt949/F7kk0EUTSwRNHuPWgD1mYKOAmrTZl0=
 AllowedIPs = 192.168.0.2/32
 ```
@@ -210,10 +208,10 @@ PrivateKey = file:///tmp/example/peer1/private-key
 Address = 192.168.0.2/24
 
 [Forwards]
-TCP = host 127.0.0.1:3000 -> tun peer0:2000
+TCP = host 127.0.0.1:3000 -> tun @peer0:2000
 
-# peer0:
 [Peer]
+Name = peer0
 PublicKey = qXwhKFk1DkZpf7XFN+pKDieCk5QVHftllLkYbsmJg2A=
 Endpoint = 127.0.0.1:4141
 AllowedIPs = 192.168.0.1/32
@@ -262,8 +260,8 @@ ListenPort = 4141
 [Forwards]
 TCP = tun us:2000 -> host 127.0.0.1:2000
 
-# peer1:
 [Peer]
+Name = peer1
 PublicKey = 92Ur/x6rt949/F7kk0EUTSwRNHuPWgD1mYKOAmrTZl0=
 ```
 
@@ -274,10 +272,10 @@ Modify peer1's config file to look like the following:
 PrivateKey = file:///tmp/example/peer1/private-key
 
 [Forwards]
-TCP = host 127.0.0.1:3000 -> tun peer0:2000
+TCP = host 127.0.0.1:3000 -> tun @peer0:2000
 
-# peer0:
 [Peer]
+Name = peer0
 PublicKey = qXwhKFk1DkZpf7XFN+pKDieCk5QVHftllLkYbsmJg2A=
 Endpoint = 127.0.0.1:4141
 ```

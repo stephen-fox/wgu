@@ -100,11 +100,6 @@ FORWARDING MAGIC STRINGS
       The address of the peer with the corresponding name according
       to the peer's Name field
 
-    peerN
-      The address of peer number N as they appear in the WireGuard
-      configuration file. For example, "peer0" would be the address
-      of the first peer in the WireGuard configuration file
-
 AUTOMATIC ADDRESS PLANNING MODE
   If the -` + autoAddressPlanningArg + ` argument is specified, then each peer's virtual WireGuard
   address is generated from its public key in the form of an IPv6 address.
@@ -137,8 +132,8 @@ HELLO WORLD EXAMPLE
     [Forwards]
     TCP = tun us:2000 -> host 127.0.0.1:2000
 
-    # peer1:
     [Peer]
+    Name = peer1
     PublicKey = (peer1's public key goes here)
     AllowedIPs = 192.168.0.2/32
 
@@ -148,18 +143,18 @@ HELLO WORLD EXAMPLE
     Address = 192.168.0.2/24
 
     [Forwards]
-    TCP = host 127.0.0.1:3000 -> tun peer0:2000
+    TCP = host 127.0.0.1:3000 -> tun @peer0:2000
 
-    # peer0:
     [Peer]
+    Name = peer0
     PublicKey = (peer0's public key goes here)
     Endpoint = 127.0.0.1:4141
     AllowedIPs = 192.168.0.1/32
 
   To create the tunnel, execute the following commands in two
   different shells:
-    $ wgu -config peer0/wgu.conf
-    $ wgu -config peer1/wgu.conf
+    $ wgu -` + configPathArg + ` peer0/wgu.conf
+    $ wgu -` + configPathArg + ` peer1/wgu.conf
 
   Finally, in two different shells, test the tunnel using nc:
     $ nc -l 2000
@@ -184,8 +179,8 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
     [Forwards]
     TCP = tun us:2000 -> host 127.0.0.1:2000
 
-    # peer1:
     [Peer]
+    Name = peer1
     PublicKey = (peer1's public key goes here)
 
   Modify peer1's config file to look like the following:
@@ -193,17 +188,17 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
     PrivateKey = (...)
 
     [Forwards]
-    TCP = host 127.0.0.1:3000 -> tun peer0:2000
+    TCP = host 127.0.0.1:3000 -> tun @peer0:2000
 
-    # peer0:
     [Peer]
+    Name = peer0
     PublicKey = (peer0's public key goes here)
     Endpoint = 127.0.0.1:4141
 
   To create the tunnel *and* enable automatic address planning,
   execute the following commands in two different shells:
-    $ wgu -config peer0/wgu.conf -` + autoAddressPlanningArg + `
-    $ wgu -config peer1/wgu.conf -` + autoAddressPlanningArg + `
+    $ wgu -` + configPathArg + ` peer0/wgu.conf -` + autoAddressPlanningArg + `
+    $ wgu -` + configPathArg + ` peer1/wgu.conf -` + autoAddressPlanningArg + `
 
   Finally, in two different shells, test the tunnel using nc:
     $ nc -l 2000
@@ -566,12 +561,13 @@ PrivateKey = file://`+privateKeyPathInConfig+`
 # to the WireGuard peer with virtual address 10.0.0.2 on TCP port 22 (ssh):
 #
 # [Forwards]
-# TCP = host 127.0.0.1:3000 -> tun peer0:2000
+# TCP = host 127.0.0.1:3000 -> tun @peer0:2000
 # TCP = tun us:2000 -> host 127.0.0.1:2000
 
 # Example peer definition:
 #
 # [Peer]
+# Name = peer0
 # PublicKey = <public-key>
 # Endpoint = 192.168.0.1:4141
 # PersistentKeepalive = 25
@@ -1198,42 +1194,7 @@ func replaceWgAddrShortcuts(args replaceWgAddrShortcutsArgs) error {
 		return nil
 	}
 
-	nPeers := len(args.wgConfig.Peers)
-
-	if n, ok := isPeerNStr(*args.addr); ok {
-		if n >= nPeers {
-			return fmt.Errorf("peer index %d was specified but only %d peers are declared",
-				n, nPeers)
-		}
-
-		addr, err := singleAddrPrefix(args.wgConfig.Peers[n].AllowedIPs)
-		if err != nil {
-			return fmt.Errorf("failed to get address for peer index %d (%s) - %w",
-				n,
-				base64.StdEncoding.EncodeToString(args.wgConfig.Peers[n].PublicKey[:]),
-				err)
-		}
-
-		*args.addr = addr.String()
-
-		return nil
-	}
-
 	return nil
-}
-
-func isPeerNStr(str string) (int, bool) {
-	withoutPeer := strings.TrimPrefix(str, "peer")
-	if withoutPeer == str {
-		return 0, false
-	}
-
-	n, err := strconv.Atoi(withoutPeer)
-	if err != nil {
-		return 0, false
-	}
-
-	return n, true
 }
 
 func singleAddrPrefix(prefixes []netip.Prefix) (netip.Addr, error) {
