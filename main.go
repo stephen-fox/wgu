@@ -754,13 +754,13 @@ func startForwarders(ctx context.Context, tnet *netstack.Net, forwards map[strin
 
 		var err error
 
-		switch fwd.proto {
-		case "tcp":
-			err = forwardTCP(ctx, waitGroup, fwd, listenNet, dialNet)
-		case "udp":
-			err = forwardUDP(ctx, waitGroup, fwd, listenNet, dialNet)
+		switch {
+		case protocolIsStream(fwd.lPro):
+			err = forwardStream(ctx, waitGroup, fwd, listenNet, dialNet)
+		case protocolIsDatagram(fwd.lPro):
+			err = forwardDatagram(ctx, waitGroup, fwd, listenNet, dialNet)
 		default:
-			return nil, fmt.Errorf("unknown protocol: %s", fwd.proto)
+			err = fmt.Errorf("unsupported listen protocol: %q", fwd.lPro)
 		}
 
 		if err != nil {
@@ -771,11 +771,33 @@ func startForwarders(ctx context.Context, tnet *netstack.Net, forwards map[strin
 	return waitGroup, nil
 }
 
-func forwardTCP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfig, lNet netOp, dNet netOp) error {
+func protocolIsStream(proto protoType) bool {
+	switch {
+	case strings.HasPrefix(string(proto), "tcp"):
+		return true
+	case proto == "unix":
+		return true
+	default:
+		return false
+	}
+}
+
+func protocolIsDatagram(proto protoType) bool {
+	switch {
+	case strings.HasPrefix(string(proto), "udp"):
+		return true
+	case proto == "unixgram":
+		return true
+	default:
+		return false
+	}
+}
+
+func forwardStream(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfig, lNet netOp, dNet netOp) error {
 	lAddr := config.lAddr.String()
 	dAddr := config.dAddr.String()
 
-	listener, err := lNet.Listen(ctx, "tcp", lAddr)
+	listener, err := lNet.Listen(ctx, string(config.lPro), lAddr)
 	if err != nil {
 		return err
 	}
@@ -783,8 +805,8 @@ func forwardTCP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfi
 	go func() {
 		<-ctx.Done()
 
-		loggerInfo.Printf("stopping tcp forwarder for %s -> %s...",
-			lAddr, dAddr)
+		loggerInfo.Printf("stopping %s forwarder for %s -> %s...",
+			config.lPro, lAddr, dAddr)
 
 		listener.Close()
 	}()
@@ -797,7 +819,8 @@ func forwardTCP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfi
 			conn, err := listener.Accept()
 			if err != nil {
 				if lerr {
-					loggerErr.Printf("error accepting tcp connection: %s", err)
+					loggerErr.Printf("error accepting %s connection: %s",
+						config.lPro, err)
 				}
 
 				return
@@ -808,22 +831,24 @@ func forwardTCP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfi
 					conn.RemoteAddr(), lAddr)
 			}
 
-			go dialAndCopyTCP(ctx, conn, dNet, dAddr)
+			go dialAndCopyStream(ctx, conn, dNet, config.dPro, dAddr)
 		}
 	}()
 
-	loggerInfo.Printf("tcp forwarder started for %s -> %s", lAddr, dAddr)
+	loggerInfo.Printf("stream forwarder started for %s %s -> %s",
+		config.lPro, lAddr, dAddr)
 
 	return nil
 }
 
-func dialAndCopyTCP(ctx context.Context, src net.Conn, dNet netOp, dstAddr string) {
+func dialAndCopyStream(ctx context.Context, src net.Conn, dNet netOp, dPro protoType, dstAddr string) {
 	defer src.Close()
 
-	dst, err := dNet.Dial(ctx, "tcp", dstAddr)
+	dst, err := dNet.Dial(ctx, string(dPro), dstAddr)
 	if err != nil {
 		if lerr {
-			loggerErr.Printf("error connecting to remote TCP: %s", err)
+			loggerErr.Printf("error connecting to remote %s: %s",
+				dPro, err)
 		}
 
 		return
@@ -831,8 +856,8 @@ func dialAndCopyTCP(ctx context.Context, src net.Conn, dNet netOp, dstAddr strin
 	defer dst.Close()
 
 	if ldebug {
-		loggerDebug.Printf("TCP connection forwarded from %s to %s",
-			src.RemoteAddr(), dstAddr)
+		loggerDebug.Printf("stream connection forwarded from %s %s to %s %s",
+			src.LocalAddr().Network(), src.RemoteAddr(), dPro, dstAddr)
 	}
 
 	done := make(chan string, 2)
@@ -860,11 +885,11 @@ func dialAndCopyTCP(ctx context.Context, src net.Conn, dNet netOp, dstAddr strin
 	}
 }
 
-func forwardUDP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfig, lNet netOp, rNet netOp) error {
+func forwardDatagram(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfig, lNet netOp, dNet netOp) error {
 	lAddr := config.lAddr.String()
 	rAddr := config.dAddr.String()
 
-	localConn, err := lNet.ListenPacket(ctx, "udp", lAddr)
+	localConn, err := lNet.ListenPacket(ctx, string(config.lPro), lAddr)
 	if err != nil {
 		return err
 	}
@@ -874,7 +899,8 @@ func forwardUDP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfi
 	go func() {
 		<-ctx.Done()
 
-		loggerInfo.Printf("stopping UDP forwarder for %s -> %s...", lAddr, rAddr)
+		loggerInfo.Printf("stopping %s orwarder for %s -> %s...",
+			config.lPro, lAddr, rAddr)
 
 		remoteConns.do(func(m map[string]net.Conn) {
 			for addr, c := range m {
@@ -895,7 +921,8 @@ func forwardUDP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfi
 			n, addr, err := localConn.ReadFrom(buffer)
 			if err != nil {
 				if ldebug {
-					loggerDebug.Printf("error reading from UDP socket: %#v", err)
+					loggerDebug.Printf("error reading from %s socket: %#v",
+						config.lPro, err)
 				}
 
 				return
@@ -913,8 +940,8 @@ func forwardUDP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfi
 				n, err = remote.Write(buffer[:n])
 				if err != nil {
 					if lerr {
-						loggerErr.Printf("error writing to remote UDP from %s: %s",
-							addrStr, err)
+						loggerErr.Printf("error writing to remote %s from %s: %s",
+							config.dPro, addrStr, err)
 					}
 
 					continue
@@ -928,10 +955,11 @@ func forwardUDP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfi
 				continue
 			}
 
-			remote, err = rNet.Dial(ctx, "udp", rAddr)
+			remote, err = dNet.Dial(ctx, "udp", rAddr)
 			if err != nil {
 				if lerr {
-					loggerErr.Printf("error connecting to remote UDP: %s", err)
+					loggerErr.Printf("error connecting to remote %s: %s",
+						config.dPro, err)
 				}
 
 				continue
@@ -942,17 +970,17 @@ func forwardUDP(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfi
 			go func() {
 				defer remoteConns.delete(addrStr)
 
-				copyUDP(addr, remote, rAddr, localConn)
+				copyDatagram(addr, remote, rAddr, localConn)
 			}()
 		}
 	}()
 
-	loggerInfo.Printf("udp forwarder started for %s -> %s", lAddr, rAddr)
+	loggerInfo.Printf("datagram forwarder started for %s -> %s", lAddr, rAddr)
 
 	return nil
 }
 
-func copyUDP(addr net.Addr, remote net.Conn, rAddr string, localConn net.PacketConn) {
+func copyDatagram(addr net.Addr, remote net.Conn, dAddr string, localConn net.PacketConn) {
 	buffer := make([]byte, 1392)
 
 	for {
@@ -961,7 +989,8 @@ func copyUDP(addr net.Addr, remote net.Conn, rAddr string, localConn net.PacketC
 		n, err := remote.Read(buffer)
 		if err != nil {
 			if ldebug {
-				loggerDebug.Printf("error reading from UDP socket: %s", err)
+				loggerDebug.Printf("error reading from %s socket: %s",
+					remote.LocalAddr().Network(), err)
 			}
 
 			return
@@ -969,7 +998,7 @@ func copyUDP(addr net.Addr, remote net.Conn, rAddr string, localConn net.PacketC
 
 		if ldebug {
 			loggerDebug.Printf("received %d bytes from %s for %s",
-				n, rAddr, remote.LocalAddr())
+				n, dAddr, remote.LocalAddr())
 		}
 
 		_, err = localConn.WriteTo(buffer[:n], addr)
@@ -983,7 +1012,7 @@ func copyUDP(addr net.Addr, remote net.Conn, rAddr string, localConn net.PacketC
 
 		if ldebug {
 			loggerDebug.Printf("forwarded %d bytes from %s to %s",
-				n, rAddr, addr)
+				n, dAddr, addr)
 		}
 	}
 }
@@ -1035,6 +1064,10 @@ type addrPort struct {
 }
 
 func (o addrPort) String() string {
+	if o.port == 0 {
+		return o.addr
+	}
+
 	return net.JoinHostPort(o.addr, strconv.Itoa(int(o.port)))
 }
 
@@ -1069,32 +1102,33 @@ func parseForwardingConfig(transport string, fwd string) (*forwardConfig, error)
 		return nil, errors.New("missing '->'")
 	}
 
-	lnet, listenAddr, err := parseForwardSideStr(listenSide)
+	lnet, lProto, listenAddr, err := parseForwardSideStr(listenSide)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse listen spec %q - %w",
 			listenSide, err)
 	}
 
-	dnet, dialAddr, err := parseForwardSideStr(dialSide)
+	dnet, dProto, dialAddr, err := parseForwardSideStr(dialSide)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse dial address %q - %w",
+		return nil, fmt.Errorf("failed to parse dial spec %q - %w",
 			dialSide, err)
 	}
 
 	return &forwardConfig{
-		proto: transport,
 		lNet:  lnet,
+		lPro:  lProto,
 		lAddr: listenAddr,
 		dNet:  dnet,
+		dPro:  dProto,
 		dAddr: dialAddr,
 	}, nil
 }
 
-func parseForwardSideStr(str string) (netType, addrPort, error) {
+func parseForwardSideStr(str string) (netType, protoType, addrPort, error) {
 	fields := strings.Fields(strings.TrimSpace(str))
 
-	if len(fields) != 2 {
-		return unknownNetType, addrPort{}, errors.New("format should be: <net-type> <address>")
+	if len(fields) != 3 {
+		return unknownNetType, "", addrPort{}, errors.New("format should be: <net-type> <proto> <address>")
 	}
 
 	var netT netType
@@ -1102,23 +1136,32 @@ func parseForwardSideStr(str string) (netType, addrPort, error) {
 	case "host", "tun":
 		netT = netType(fields[0])
 	default:
-		return unknownNetType, addrPort{}, fmt.Errorf("unknown network type: %q", fields[0])
+		return unknownNetType, "", addrPort{}, fmt.Errorf("unknown network type: %q", fields[0])
 	}
 
-	addr, err := strToAddrAndPort(fields[1])
-	if err != nil {
-		return unknownNetType, addrPort{}, fmt.Errorf("failed to parse address %q - %w",
-			fields[1], err)
+	proto := protoType(fields[1])
+
+	var addr addrPort
+	var err error
+	if strings.HasPrefix(string(proto), "unix") {
+		addr = addrPort{addr: fields[2]}
+	} else {
+		addr, err = strToAddrAndPort(fields[2])
+		if err != nil {
+			return unknownNetType, "", addrPort{}, fmt.Errorf("failed to parse address %q - %w",
+				fields[1], err)
+		}
 	}
 
-	return netT, addr, nil
+	return netT, protoType(fields[1]), addr, nil
 }
 
 type forwardConfig struct {
-	proto string
 	lNet  netType
+	lPro  protoType
 	lAddr addrPort
 	dNet  netType
+	dPro  protoType
 	dAddr addrPort
 }
 
@@ -1129,6 +1172,8 @@ const (
 	hostNetType    netType = "host"
 	tunNetType     netType = "tun"
 )
+
+type protoType string
 
 func strToAddrAndPort(str string) (addrPort, error) {
 	host, portStr, err := net.SplitHostPort(str)
