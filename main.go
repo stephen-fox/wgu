@@ -221,8 +221,7 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
 	noLogTimestampsArg     = "T"
 	autoAddressPlanningArg = "A"
 	helpArg                = "h"
-	tcpArg                 = "tcp"
-	udpArg                 = "udp"
+	forwardArg             = "f"
 	udpTimeoutArg          = "udp-timeout"
 
 	helpArgv = "'" + appName + " " + helpCmd + "'"
@@ -438,23 +437,13 @@ func up() error {
 
 	forwards := make(map[string]*forwardConfig)
 
-	tcpForwards := forwardFlag{
-		transport:     "tcp",
+	forwardArgs := forwardFlag{
 		strsToConfigs: forwards,
 	}
 	flagSet.Var(
-		&tcpForwards,
-		tcpArg,
-		"TCP port forward `specification` (see "+helpArgv+" for details)")
-
-	udpForwards := forwardFlag{
-		transport:     "udp",
-		strsToConfigs: forwards,
-	}
-	flagSet.Var(
-		&udpForwards,
-		udpArg,
-		"UDP port forward `specification` (see "+helpArgv+" for details)")
+		&forwardArgs,
+		forwardArg,
+		"Port forward `specification` (see "+helpArgv+" for details)")
 
 	flagSet.DurationVar(
 		&udpTimeout,
@@ -555,22 +544,10 @@ func up() error {
 		}
 
 		for _, param := range section.Params {
-			switch param.Name {
-			case "TCP":
-				err := tcpForwards.Set(param.Value)
-				if err != nil {
-					return fmt.Errorf("failed to parse tcp forward from config (%q) - %w",
-						param.Value, err)
-				}
-			case "UDP":
-				err := udpForwards.Set(param.Value)
-				if err != nil {
-					return fmt.Errorf("failed to parse udp forward from config (%q) - %w",
-						param.Value, err)
-				}
-			default:
-				return fmt.Errorf("forward from config specifies unknown transport: %q",
-					param.Name)
+			err := forwardArgs.Set(param.Value)
+			if err != nil {
+				return fmt.Errorf("failed to parse forward from config %q (%q) - %w",
+					param.Name, param.Value, err)
 			}
 		}
 	}
@@ -1072,7 +1049,6 @@ func (o addrPort) String() string {
 }
 
 type forwardFlag struct {
-	transport     string
 	strsToConfigs map[string]*forwardConfig
 }
 
@@ -1082,7 +1058,7 @@ func (o *forwardFlag) Set(fwd string) error {
 		return errors.New("forward config already specified")
 	}
 
-	config, err := parseForwardingConfig(o.transport, fwd)
+	config, err := parseForwardingConfig(fwd)
 	if err != nil {
 		return err
 	}
@@ -1091,12 +1067,12 @@ func (o *forwardFlag) Set(fwd string) error {
 		o.strsToConfigs = make(map[string]*forwardConfig)
 	}
 
-	o.strsToConfigs["-"+o.transport+" "+fwd] = config
+	o.strsToConfigs[fwd] = config
 
 	return nil
 }
 
-func parseForwardingConfig(transport string, fwd string) (*forwardConfig, error) {
+func parseForwardingConfig(fwd string) (*forwardConfig, error) {
 	listenSide, dialSide, hasIt := strings.Cut(fwd, "->")
 	if !hasIt {
 		return nil, errors.New("missing '->'")
