@@ -24,6 +24,7 @@ import (
 	"syscall"
 	"time"
 
+	"gitlab.com/stephen-fox/wgu/internal/ini"
 	"gitlab.com/stephen-fox/wgu/internal/wgconfig"
 	"gitlab.com/stephen-fox/wgu/internal/wgdns"
 	"gitlab.com/stephen-fox/wgu/internal/wgkeys"
@@ -435,16 +436,6 @@ func up() error {
 		false,
 		"Display this information")
 
-	forwards := make(map[string]*forwardConfig)
-
-	forwardArgs := forwardFlag{
-		strsToConfigs: forwards,
-	}
-	flagSet.Var(
-		&forwardArgs,
-		forwardArg,
-		"Port forward `specification` (see "+helpArgv+" for details)")
-
 	flagSet.DurationVar(
 		&udpTimeout,
 		udpTimeoutArg,
@@ -538,18 +529,9 @@ func up() error {
 		cfg.Interface.MTU = &i
 	}
 
-	for _, section := range cfg.Others {
-		if section.Name != "Forwards" {
-			continue
-		}
-
-		for _, param := range section.Params {
-			err := forwardArgs.Set(param.Value)
-			if err != nil {
-				return fmt.Errorf("failed to parse forward from config %q (%q) - %w",
-					param.Name, param.Value, err)
-			}
-		}
+	appCfg, err := ParseConfig(cfg.Others)
+	if err != nil {
+		return fmt.Errorf("failed to parse app config - %w", err)
 	}
 
 	if *autoAddrPlanning {
@@ -579,7 +561,7 @@ func up() error {
 	}
 
 	ourWgAddrStr := cfg.Interface.Address.Addr().String()
-	for str, forward := range forwards {
+	for str, forward := range appCfg.Forwarders {
 		err = replaceWgAddrShortcuts(replaceWgAddrShortcutsArgs{
 			addr:      &forward.lAddr.addr,
 			ourWgAddr: ourWgAddrStr,
@@ -640,7 +622,7 @@ func up() error {
 	dnsMonitorErrs := make(chan error, 1)
 	wgdns.MonitorPeers(ctx, cfg.Peers, dev, dnsMonitorErrs, loggerInfo)
 
-	waitGroup, err := startForwarders(ctx, tnet, forwards)
+	waitGroup, err := startForwarders(ctx, tnet, appCfg.Forwarders)
 	if err != nil {
 		return fmt.Errorf("failed to start network forwarders - %w", err)
 	}
@@ -652,6 +634,74 @@ func up() error {
 	case err = <-dnsMonitorErrs:
 		return fmt.Errorf("failed to monitor peer's dns changes - %w", err)
 	}
+}
+
+func ParseConfig(sections []*ini.Section) (*Config, error) {
+	config := &Config{}
+
+	for _, section := range sections {
+		if section.Name != "Forwarder" {
+			continue
+		}
+
+		err := config.parseForwarder(section)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return config, nil
+}
+
+type Config struct {
+	Forwarders map[string]*forwardConfig
+}
+
+func (o *Config) parseForwarder(fwd *ini.Section) error {
+	name, err := fwd.FirstParam("Name")
+	if err != nil {
+		return err
+	}
+
+	listen, err := fwd.FirstParam("Listen")
+	if err != nil {
+		return err
+	}
+
+	dial, err := fwd.FirstParam("Dial")
+	if err != nil {
+		return err
+	}
+
+	lNetwork, lProtocol, lAddr, err := parseForwardSideStr(listen.Value)
+	if err != nil {
+		return fmt.Errorf("failed to parse listen spec - %w", err)
+	}
+
+	dNetwork, dProtocol, dAddr, err := parseForwardSideStr(dial.Value)
+	if err != nil {
+		return fmt.Errorf("failed to parse dial spec - %w", err)
+	}
+
+	_, alreadyHasIt := o.Forwarders[name.Value]
+	if alreadyHasIt {
+		return fmt.Errorf("forward config already specified: %q", name)
+	}
+
+	if o.Forwarders == nil {
+		o.Forwarders = make(map[string]*forwardConfig)
+	}
+
+	o.Forwarders[name.Value] = &forwardConfig{
+		lNet:  lNetwork,
+		lPro:  lProtocol,
+		lAddr: lAddr,
+		dNet:  dNetwork,
+		dPro:  dProtocol,
+		dAddr: dAddr,
+	}
+
+	return nil
 }
 
 type netOp interface {
@@ -1048,58 +1098,6 @@ func (o addrPort) String() string {
 	return net.JoinHostPort(o.addr, strconv.Itoa(int(o.port)))
 }
 
-type forwardFlag struct {
-	strsToConfigs map[string]*forwardConfig
-}
-
-func (o *forwardFlag) Set(fwd string) error {
-	_, alreadyHasIt := o.strsToConfigs[fwd]
-	if alreadyHasIt {
-		return errors.New("forward config already specified")
-	}
-
-	config, err := parseForwardingConfig(fwd)
-	if err != nil {
-		return err
-	}
-
-	if o.strsToConfigs == nil {
-		o.strsToConfigs = make(map[string]*forwardConfig)
-	}
-
-	o.strsToConfigs[fwd] = config
-
-	return nil
-}
-
-func parseForwardingConfig(fwd string) (*forwardConfig, error) {
-	listenSide, dialSide, hasIt := strings.Cut(fwd, "->")
-	if !hasIt {
-		return nil, errors.New("missing '->'")
-	}
-
-	lnet, lProto, listenAddr, err := parseForwardSideStr(listenSide)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse listen spec %q - %w",
-			listenSide, err)
-	}
-
-	dnet, dProto, dialAddr, err := parseForwardSideStr(dialSide)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse dial spec %q - %w",
-			dialSide, err)
-	}
-
-	return &forwardConfig{
-		lNet:  lnet,
-		lPro:  lProto,
-		lAddr: listenAddr,
-		dNet:  dnet,
-		dPro:  dProto,
-		dAddr: dialAddr,
-	}, nil
-}
-
 func parseForwardSideStr(str string) (netType, protoType, addrPort, error) {
 	fields := strings.Fields(strings.TrimSpace(str))
 
@@ -1175,10 +1173,6 @@ func strToPort(portStr string) (uint16, error) {
 	}
 
 	return uint16(port), nil
-}
-
-func (o *forwardFlag) String() string {
-	return "" // TODO
 }
 
 func doAutoAddrPlanning(cfg *wgconfig.Config) error {
