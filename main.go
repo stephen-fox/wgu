@@ -563,7 +563,7 @@ func up() error {
 	ourWgAddrStr := cfg.Interface.Address.Addr().String()
 	for str, forward := range appCfg.Forwarders {
 		err = replaceWgAddrShortcuts(replaceWgAddrShortcutsArgs{
-			addr:      &forward.lAddr.addr,
+			addr:      &forward.ListenAddr.addr,
 			ourWgAddr: ourWgAddrStr,
 			wgConfig:  cfg,
 		})
@@ -573,7 +573,7 @@ func up() error {
 		}
 
 		err = replaceWgAddrShortcuts(replaceWgAddrShortcutsArgs{
-			addr:      &forward.dAddr.addr,
+			addr:      &forward.DialAddr.addr,
 			ourWgAddr: ourWgAddrStr,
 			wgConfig:  cfg,
 		})
@@ -654,7 +654,7 @@ func ParseConfig(sections []*ini.Section) (*Config, error) {
 }
 
 type Config struct {
-	Forwarders map[string]*forwardConfig
+	Forwarders map[string]*ForwarderSpec
 }
 
 func (o *Config) parseForwarder(fwd *ini.Section) error {
@@ -673,12 +673,12 @@ func (o *Config) parseForwarder(fwd *ini.Section) error {
 		return err
 	}
 
-	lNetwork, lProtocol, lAddr, err := parseForwardSideStr(listen.Value)
+	lNetwork, lProtocol, lAddr, err := parseForwarderTransitSpec(listen.Value)
 	if err != nil {
 		return fmt.Errorf("failed to parse listen spec - %w", err)
 	}
 
-	dNetwork, dProtocol, dAddr, err := parseForwardSideStr(dial.Value)
+	dNetwork, dProtocol, dAddr, err := parseForwarderTransitSpec(dial.Value)
 	if err != nil {
 		return fmt.Errorf("failed to parse dial spec - %w", err)
 	}
@@ -689,16 +689,16 @@ func (o *Config) parseForwarder(fwd *ini.Section) error {
 	}
 
 	if o.Forwarders == nil {
-		o.Forwarders = make(map[string]*forwardConfig)
+		o.Forwarders = make(map[string]*ForwarderSpec)
 	}
 
-	o.Forwarders[name.Value] = &forwardConfig{
-		lNet:  lNetwork,
-		lPro:  lProtocol,
-		lAddr: lAddr,
-		dNet:  dNetwork,
-		dPro:  dProtocol,
-		dAddr: dAddr,
+	o.Forwarders[name.Value] = &ForwarderSpec{
+		ListenNet:   lNetwork,
+		ListenProto: lProtocol,
+		ListenAddr:  lAddr,
+		DialNet:     dNetwork,
+		DialProto:   dProtocol,
+		DialAddr:    dAddr,
 	}
 
 	return nil
@@ -751,30 +751,30 @@ func (n *tunnelNetOp) ListenPacket(ctx context.Context, network string, address 
 	return n.tun.ListenUDP(addr)
 }
 
-func startForwarders(ctx context.Context, tnet *netstack.Net, forwards map[string]*forwardConfig) (*sync.WaitGroup, error) {
+func startForwarders(ctx context.Context, tnet *netstack.Net, forwards map[string]*ForwarderSpec) (*sync.WaitGroup, error) {
 	waitGroup := &sync.WaitGroup{}
 	var localNetOp = &localNetOp{}
 	var tunnelNetOp = &tunnelNetOp{tnet}
 
 	for fwdStr, fwd := range forwards {
 		var listenNet netOp
-		switch fwd.lNet {
-		case hostNetType:
+		switch fwd.ListenNet {
+		case HostNetT:
 			listenNet = localNetOp
-		case tunNetType:
+		case TunNetT:
 			listenNet = tunnelNetOp
 		default:
-			return nil, fmt.Errorf("unsupported listen net type: %q", fwd.lNet)
+			return nil, fmt.Errorf("unsupported listen net type: %q", fwd.ListenNet)
 		}
 
 		var dialNet netOp
-		switch fwd.dNet {
-		case hostNetType:
+		switch fwd.DialNet {
+		case HostNetT:
 			dialNet = localNetOp
-		case tunNetType:
+		case TunNetT:
 			dialNet = tunnelNetOp
 		default:
-			return nil, fmt.Errorf("unsupported dial net type: %q", fwd.lNet)
+			return nil, fmt.Errorf("unsupported dial net type: %q", fwd.ListenNet)
 		}
 
 		loggerInfo.Printf("starting %q...", fwdStr)
@@ -782,12 +782,12 @@ func startForwarders(ctx context.Context, tnet *netstack.Net, forwards map[strin
 		var err error
 
 		switch {
-		case protocolIsStream(fwd.lPro):
+		case fwd.ListenProto.IsStream():
 			err = forwardStream(ctx, waitGroup, fwd, listenNet, dialNet)
-		case protocolIsDatagram(fwd.lPro):
+		case fwd.ListenProto.IsDatagram():
 			err = forwardDatagram(ctx, waitGroup, fwd, listenNet, dialNet)
 		default:
-			err = fmt.Errorf("unsupported listen protocol: %q", fwd.lPro)
+			err = fmt.Errorf("unsupported listen protocol: %q", fwd.ListenProto)
 		}
 
 		if err != nil {
@@ -798,33 +798,11 @@ func startForwarders(ctx context.Context, tnet *netstack.Net, forwards map[strin
 	return waitGroup, nil
 }
 
-func protocolIsStream(proto protoType) bool {
-	switch {
-	case strings.HasPrefix(string(proto), "tcp"):
-		return true
-	case proto == "unix":
-		return true
-	default:
-		return false
-	}
-}
+func forwardStream(ctx context.Context, waitg *sync.WaitGroup, spec *ForwarderSpec, lNet netOp, dNet netOp) error {
+	lAddr := spec.ListenAddr.String()
+	dAddr := spec.DialAddr.String()
 
-func protocolIsDatagram(proto protoType) bool {
-	switch {
-	case strings.HasPrefix(string(proto), "udp"):
-		return true
-	case proto == "unixgram":
-		return true
-	default:
-		return false
-	}
-}
-
-func forwardStream(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfig, lNet netOp, dNet netOp) error {
-	lAddr := config.lAddr.String()
-	dAddr := config.dAddr.String()
-
-	listener, err := lNet.Listen(ctx, string(config.lPro), lAddr)
+	listener, err := lNet.Listen(ctx, string(spec.ListenProto), lAddr)
 	if err != nil {
 		return err
 	}
@@ -833,7 +811,7 @@ func forwardStream(ctx context.Context, waitg *sync.WaitGroup, config *forwardCo
 		<-ctx.Done()
 
 		loggerInfo.Printf("stopping %s forwarder for %s -> %s...",
-			config.lPro, lAddr, dAddr)
+			spec.ListenProto, lAddr, dAddr)
 
 		listener.Close()
 	}()
@@ -847,7 +825,7 @@ func forwardStream(ctx context.Context, waitg *sync.WaitGroup, config *forwardCo
 			if err != nil {
 				if lerr {
 					loggerErr.Printf("error accepting %s connection: %s",
-						config.lPro, err)
+						spec.ListenProto, err)
 				}
 
 				return
@@ -858,17 +836,17 @@ func forwardStream(ctx context.Context, waitg *sync.WaitGroup, config *forwardCo
 					conn.RemoteAddr(), lAddr)
 			}
 
-			go dialAndCopyStream(ctx, conn, dNet, config.dPro, dAddr)
+			go dialAndCopyStream(ctx, conn, dNet, spec.DialProto, dAddr)
 		}
 	}()
 
 	loggerInfo.Printf("stream forwarder started for %s %s -> %s",
-		config.lPro, lAddr, dAddr)
+		spec.ListenProto, lAddr, dAddr)
 
 	return nil
 }
 
-func dialAndCopyStream(ctx context.Context, src net.Conn, dNet netOp, dPro protoType, dstAddr string) {
+func dialAndCopyStream(ctx context.Context, src net.Conn, dNet netOp, dPro ProtocolT, dstAddr string) {
 	defer src.Close()
 
 	dst, err := dNet.Dial(ctx, string(dPro), dstAddr)
@@ -912,11 +890,11 @@ func dialAndCopyStream(ctx context.Context, src net.Conn, dNet netOp, dPro proto
 	}
 }
 
-func forwardDatagram(ctx context.Context, waitg *sync.WaitGroup, config *forwardConfig, lNet netOp, dNet netOp) error {
-	lAddr := config.lAddr.String()
-	rAddr := config.dAddr.String()
+func forwardDatagram(ctx context.Context, waitg *sync.WaitGroup, spec *ForwarderSpec, lNet netOp, dNet netOp) error {
+	lAddr := spec.ListenAddr.String()
+	rAddr := spec.DialAddr.String()
 
-	localConn, err := lNet.ListenPacket(ctx, string(config.lPro), lAddr)
+	localConn, err := lNet.ListenPacket(ctx, string(spec.ListenProto), lAddr)
 	if err != nil {
 		return err
 	}
@@ -927,7 +905,7 @@ func forwardDatagram(ctx context.Context, waitg *sync.WaitGroup, config *forward
 		<-ctx.Done()
 
 		loggerInfo.Printf("stopping %s orwarder for %s -> %s...",
-			config.lPro, lAddr, rAddr)
+			spec.ListenProto, lAddr, rAddr)
 
 		remoteConns.do(func(m map[string]net.Conn) {
 			for addr, c := range m {
@@ -949,7 +927,7 @@ func forwardDatagram(ctx context.Context, waitg *sync.WaitGroup, config *forward
 			if err != nil {
 				if ldebug {
 					loggerDebug.Printf("error reading from %s socket: %#v",
-						config.lPro, err)
+						spec.ListenProto, err)
 				}
 
 				return
@@ -968,7 +946,7 @@ func forwardDatagram(ctx context.Context, waitg *sync.WaitGroup, config *forward
 				if err != nil {
 					if lerr {
 						loggerErr.Printf("error writing to remote %s from %s: %s",
-							config.dPro, addrStr, err)
+							spec.DialProto, addrStr, err)
 					}
 
 					continue
@@ -986,7 +964,7 @@ func forwardDatagram(ctx context.Context, waitg *sync.WaitGroup, config *forward
 			if err != nil {
 				if lerr {
 					loggerErr.Printf("error connecting to remote %s: %s",
-						config.dPro, err)
+						spec.DialProto, err)
 				}
 
 				continue
@@ -1085,12 +1063,12 @@ func (o *connMap) delete(addr string) {
 	delete(o.conns, addr)
 }
 
-type addrPort struct {
+type Addr struct {
 	addr string
 	port uint16
 }
 
-func (o addrPort) String() string {
+func (o Addr) String() string {
 	if o.port == 0 {
 		return o.addr
 	}
@@ -1098,69 +1076,91 @@ func (o addrPort) String() string {
 	return net.JoinHostPort(o.addr, strconv.Itoa(int(o.port)))
 }
 
-func parseForwardSideStr(str string) (netType, protoType, addrPort, error) {
+func parseForwarderTransitSpec(str string) (NetT, ProtocolT, Addr, error) {
 	fields := strings.Fields(strings.TrimSpace(str))
 
 	if len(fields) != 3 {
-		return unknownNetType, "", addrPort{}, errors.New("format should be: <net-type> <proto> <address>")
+		return UnknownNetT, "", Addr{}, errors.New("format should be: <net-type> <proto> <address>")
 	}
 
-	var netT netType
+	var netT NetT
 	switch fields[0] {
 	case "host", "tun":
-		netT = netType(fields[0])
+		netT = NetT(fields[0])
 	default:
-		return unknownNetType, "", addrPort{}, fmt.Errorf("unknown network type: %q", fields[0])
+		return UnknownNetT, "", Addr{}, fmt.Errorf("unknown network type: %q", fields[0])
 	}
 
-	proto := protoType(fields[1])
+	proto := ProtocolT(fields[1])
 
-	var addr addrPort
+	var addr Addr
 	var err error
 	if strings.HasPrefix(string(proto), "unix") {
-		addr = addrPort{addr: fields[2]}
+		addr = Addr{addr: fields[2]}
 	} else {
 		addr, err = strToAddrAndPort(fields[2])
 		if err != nil {
-			return unknownNetType, "", addrPort{}, fmt.Errorf("failed to parse address %q - %w",
+			return UnknownNetT, "", Addr{}, fmt.Errorf("failed to parse address %q - %w",
 				fields[1], err)
 		}
 	}
 
-	return netT, protoType(fields[1]), addr, nil
+	return netT, ProtocolT(fields[1]), addr, nil
 }
 
-type forwardConfig struct {
-	lNet  netType
-	lPro  protoType
-	lAddr addrPort
-	dNet  netType
-	dPro  protoType
-	dAddr addrPort
+type ForwarderSpec struct {
+	ListenNet   NetT
+	ListenProto ProtocolT
+	ListenAddr  Addr
+	DialNet     NetT
+	DialProto   ProtocolT
+	DialAddr    Addr
 }
 
-type netType string
+type NetT string
 
 const (
-	unknownNetType netType = ""
-	hostNetType    netType = "host"
-	tunNetType     netType = "tun"
+	UnknownNetT NetT = ""
+	HostNetT    NetT = "host"
+	TunNetT     NetT = "tun"
 )
 
-type protoType string
+type ProtocolT string
 
-func strToAddrAndPort(str string) (addrPort, error) {
+func (proto ProtocolT) IsStream() bool {
+	switch {
+	case strings.HasPrefix(string(proto), "tcp"):
+		return true
+	case proto == "unix":
+		return true
+	default:
+		return false
+	}
+}
+
+func (proto ProtocolT) IsDatagram() bool {
+	switch {
+	case strings.HasPrefix(string(proto), "udp"):
+		return true
+	case proto == "unixgram":
+		return true
+	default:
+		return false
+	}
+}
+
+func strToAddrAndPort(str string) (Addr, error) {
 	host, portStr, err := net.SplitHostPort(str)
 	if err != nil {
-		return addrPort{}, err
+		return Addr{}, err
 	}
 
 	port, err := strToPort(portStr)
 	if err != nil {
-		return addrPort{}, err
+		return Addr{}, err
 	}
 
-	return addrPort{
+	return Addr{
 		addr: host,
 		port: port,
 	}, nil
