@@ -12,14 +12,15 @@ where to forward the connections to.
 
 wgu expands on wgfwd's functionality with the following features:
 
+- Automatic address planning mode: Optionally address peers' WireGuard
+  interfaces using their public keys as IPv6 addresses. This mode makes
+  it easy to quickly build simple WireGuard networks
 - Specify which side of the tunnel a network listener should be created on
 - Network listener and dialer type customization allows mixing of network
   protocols (for example: forwarding Unix sockets over TCP / UDP)
 - Support for WireGuard configuration syntax via a configuration file
-- Support for common `wg` helper commands like `genkey` and `pubkey`
-- Added additional helper commands like `genconfig` to make setup easier
-- Optionally address peers' WireGuard interfaces using their public keys
-  as IPv6 addresses in automatic address planning mode
+- Support for commonly-used `wg` helper commands like `genkey` and `pubkey`
+- Additional helper commands like `genconfig` to make setup easier
 - Support for resolving peers' external addresses using DNS hostnames
 - Store the private key in a separate file
 - Expand the WireGuard interface's address and peers' addresses using
@@ -29,6 +30,7 @@ wgu expands on wgfwd's functionality with the following features:
 
 ```console
 $ wgu genconfig
+z9yJgu9cvwbygPzuUtzcmkuB2K2nxA6viKj1kUDj4Ug=
 $ # Modify ~/.wgu/wgu.conf as desired.
 $ wgu up ~/.wgu/wgu.conf
 ```
@@ -70,7 +72,7 @@ This makes it easier to construct simple WireGuard topologies without
 planning out IP address allocations or needing to know each peer's
 WireGuard address.
 
-In this mode, it is unnecessary to specify the 'Address' configuration
+In this mode, it is unnecessary to specify the `Address` configuration
 parameter for other peers.
 
 #### Forwarder configuration
@@ -228,7 +230,7 @@ Creates the WireGuard tunnel(s).
 Example:
 
 ```console
-$ wgu up config.conf
+$ wgu up wgu.conf
 ```
 
 ## Examples
