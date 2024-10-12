@@ -4,7 +4,7 @@ wgu (WireGuard User Space) is a fork of Jonathan Giannuzzi's [wgfwd][wgfwd].
 wgu allows users to create WireGuard tunnels without running as root.
 Connections to network services are managed using forwarders. Each
 forwarder tells wgu where to listen for incoming connections and
-where to forward the connections to.
+where to forward connections to.
 
 [wgfwd]: https://github.com/jgiannuzzi/wgfwd
 
