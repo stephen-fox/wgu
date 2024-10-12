@@ -1,8 +1,8 @@
 // wgu (WireGuard User Space) is a fork of Jonathan Giannuzzi's wgfwd.
 // wgu allows users to create WireGuard tunnels without running as root
-// Connections to network services running on peers are managed using
-// forwarding specifications. Each specification tells wgu where to listen
-// for incoming connections and where to forward the connections to.
+// Connections to network services are managed using forwarders. Each
+// forwarder tells wgu where to listen for incoming connections and
+// where to forward the connections to.
 package main
 
 import (
@@ -47,9 +47,9 @@ const (
 DESCRIPTION
   wgu (WireGuard User Space) is a fork of Jonathan Giannuzzi's wgfwd.
   wgu allows users to create WireGuard tunnels without running as root
-  Connections to network services running on peers are managed using
-  forwarding specifications. Each specification tells wgu where to listen
-  for incoming connections and where to forward the connections to.
+  Connections to network services are managed using forwarders. Each
+  forwarder tells wgu where to listen for incoming connections and
+  where to forward the connections to.
 
   For detailed documentation and configuration examples, please execute:
     ` + appName + ` ` + helpCmd + `
@@ -77,26 +77,55 @@ OPTIONS
                        from stdin and convert it to an IPv6 address
   ` + upCmd + ` CONFIG-PATH     - Start the virtual WireGuard interface and forwarders
 
-FORWARDING SPECIFICATION
-  Port forwards are defined in the [Forwards] section using the following
-  specification format:
+FORWARDER CONFIGURATION
+  Port forwards are defined in a Forwarder configuration section using
+  the following configuration fields:
 
-    transport = net-type listen-address:port -> net-type dial-address:port
+    [Forwarder]
+    Name = <name>
+    Listen = <transit-specification>
+    Dial = <transit-specification>
 
-  "net-type" may be one of the following values:
+  A transit specification is of the format:
+
+    net-stack protocol address:port
+
+  "net-stack" may be one of the following values:
 
     - host - The host computer's networking stack is used
     - tun  - The WireGuard networking stack is used
 
-  For example, the following specification forwards TCP connections to
+  "protocol" can be any of the strings that the Go net library takes.
+  This includes:
+
+    - tcp, tcp6
+    - udp, udp6
+    - unix, unixgram, unixpacket
+
+  For more information on the above strings, refer to the Go's net.Dial
+  documentation: https://pkg.go.dev/net#Dial
+
+  For example, the following configuration forwards TCP connections to
   127.0.0.1:22 on the host machine to a WireGuard peer who has the
   virtual address of 10.0.0.1:
 
-    TCP = host 127.0.0.1:22 -> tun 10.0.0.1:22
+    [Forwarder]
+    Name = example
+    Listen = host tcp 127.0.0.1:22
+    Dial = tun tcp 10.0.0.1:22
 
-FORWARDING MAGIC STRINGS
-  The "listen-address" and "dial-address" values can be replaced with
-  magic strings that are expanded to the corresponding address.
+  Protocols can be mixed. In the following example, connections to the
+  Unix socket "example.sock" will be forwarded to a WireGuard peer
+  who has the virtual address of 10.0.0.1 using TCP:
+
+    [Forwarder]
+    Name = example
+    Listen = host unix example.sock
+    Dial = tun tcp 10.0.0.1:22
+
+FORWARDER MAGIC STRINGS
+  The "address" values can be replaced with magic strings that are
+  expanded to the corresponding address:
 
     @us
       The first IP address of our virtual WireGuard interface
@@ -123,19 +152,23 @@ HELLO WORLD EXAMPLE
   and forward connections to TCP port 2000 to port 3000.
 
   First, create two configuration directories using ` + genconfigCmd + `:
+
     $ wgu ` + genconfigCmd + ` peer0
-    qXwhKFk1DkZpf7XFN+pKDieCk5QVHftllLkYbsmJg2A=
+    (peer0's public key)
     $ wgu ` + genconfigCmd + ` peer1
-    92Ur/x6rt949/F7kk0EUTSwRNHuPWgD1mYKOAmrTZl0=
+    (peer1's public key)
 
   Edit peer0's config file, and make it look similar to the following:
+
     [Interface]
     PrivateKey = (...)
     ListenPort = 4141
     Address = 192.168.0.1/24
 
-    [Forwards]
-    TCP = tun @us:2000 -> host 127.0.0.1:2000
+    [Forwarder]
+    Name = example tun recv
+    Listen = tun tcp @us:2000
+    Dial = host tcp 127.0.0.1:2000
 
     [Peer]
     Name = peer1
@@ -143,12 +176,15 @@ HELLO WORLD EXAMPLE
     AllowedIPs = 192.168.0.2/32
 
   Modify peer1's config file to look like the following:
+
     [Interface]
     PrivateKey = (...)
     Address = 192.168.0.2/24
 
-    [Forwards]
-    TCP = host 127.0.0.1:3000 -> tun @peer0:2000
+    [Forwarder]
+    Name = example host forward
+    Listen = host tcp 127.0.0.1:3000
+    Dial = tun tcp @peer0:2000
 
     [Peer]
     Name = peer0
@@ -158,10 +194,12 @@ HELLO WORLD EXAMPLE
 
   To create the tunnel, execute the following commands in two
   different shells:
+
     $ wgu ` + upCmd + ` peer0/wgu.conf
     $ wgu ` + upCmd + ` peer1/wgu.conf
 
   Finally, in two different shells, test the tunnel using nc:
+
     $ nc -l 2000
     $ echo 'hello' | nc 127.0.0.1 3000
 
@@ -171,29 +209,36 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
   automatic address planning mode.
 
   First, create two configuration directories using ` + genconfigCmd + `:
+
     $ wgu ` + genconfigCmd + ` peer0
-    qXwhKFk1DkZpf7XFN+pKDieCk5QVHftllLkYbsmJg2A=
+    (peer0's public key)
     $ wgu ` + genconfigCmd + ` peer1
-    92Ur/x6rt949/F7kk0EUTSwRNHuPWgD1mYKOAmrTZl0=
+    (peer1's public key)
 
   Edit peer0's config file, and make it look similar to the following:
+
     [Interface]
     PrivateKey = (...)
     ListenPort = 4141
 
-    [Forwards]
-    TCP = tun @us:2000 -> host 127.0.0.1:2000
+    [Forwarder]
+    Name = example tun recv
+    Listen = tun tcp @us:2000
+    Dial = host tcp 127.0.0.1:2000
 
     [Peer]
     Name = peer1
     PublicKey = (peer1's public key goes here)
 
   Modify peer1's config file to look like the following:
+
     [Interface]
     PrivateKey = (...)
 
-    [Forwards]
-    TCP = host 127.0.0.1:3000 -> tun @peer0:2000
+    [Forwarder]
+    Name = example host forward
+    Listen = host tcp 127.0.0.1:3000
+    Dial = tun tcp @peer0:2000
 
     [Peer]
     Name = peer0
@@ -202,10 +247,12 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
 
   To create the tunnel *and* enable automatic address planning,
   execute the following commands in two different shells:
+
     $ wgu ` + upCmd + ` -` + autoAddressPlanningArg + ` peer0/wgu.conf
     $ wgu ` + upCmd + ` -` + autoAddressPlanningArg + ` peer1/wgu.conf
 
   Finally, in two different shells, test the tunnel using nc:
+
     $ nc -l 2000
     $ echo 'hello' | nc 127.0.0.1 3000
 `
@@ -389,21 +436,28 @@ PrivateKey = file://`+privateKeyPathInConfig+`
 # Optionally, allow other peers to connect to us:
 # ListenPort = 4141
 
-# Note: For more information, please execute: "`+appName+` `+helpCmd+`"
+# The following example sends connections to TCP port 2000 on
+# the WireGuard tunnel to the same port on your machine:
 #
-# The following forwarding example sends TCP port 2222 on your machine
-# to the WireGuard peer with virtual address 10.0.0.2 on TCP port 22 (ssh):
+# [Forwarder]
+# Name = example tun recv
+# Listen = tun tcp @us:2000
+# Dial = host tcp 127.0.0.1:2000
 #
-# [Forwards]
-# TCP = host 127.0.0.1:3000 -> tun @peer0:2000
-# TCP = tun @us:2000 -> host 127.0.0.1:2000
+# The following forwarding example sends connections to TCP
+# port 2000 on your machine to the WireGuard peer named peer0:
+#
+# [Forwarder]
+# Name = example host forward
+# Listen = host tcp 127.0.0.1:3000
+# Dial = tun tcp @peer0:2000
 
 # Example peer definition:
 #
 # [Peer]
 # Name = peer0
 # PublicKey = <public-key>
-# Endpoint = 192.168.0.1:4141
+# Endpoint = 127.0.0.1:4141
 # PersistentKeepalive = 25
 # AllowedIPs = 192.168.0.2/32
 `), 0o600)
@@ -666,22 +720,24 @@ func (o *Config) parseForwarder(fwd *ini.Section) error {
 
 	listen, err := fwd.FirstParam("Listen")
 	if err != nil {
-		return err
+		return fmt.Errorf("forwarder %q: %w", name.Value, err)
 	}
 
 	dial, err := fwd.FirstParam("Dial")
 	if err != nil {
-		return err
+		return fmt.Errorf("forwarder %q: %w", name.Value, err)
 	}
 
-	lNetwork, lAddr, err := parseForwarderTransitSpec(listen.Value)
+	lNetwork, lAddr, err := parseTransitSpec(listen.Value)
 	if err != nil {
-		return fmt.Errorf("failed to parse listen spec - %w", err)
+		return fmt.Errorf("failed to parse listen transit spec for %q - %w",
+			name.Value, err)
 	}
 
-	dNetwork, dAddr, err := parseForwarderTransitSpec(dial.Value)
+	dNetwork, dAddr, err := parseTransitSpec(dial.Value)
 	if err != nil {
-		return fmt.Errorf("failed to parse dial spec - %w", err)
+		return fmt.Errorf("failed to parse dial transit spec for %q - %w",
+			name.Value, err)
 	}
 
 	_, alreadyHasIt := o.Forwarders[name.Value]
@@ -759,9 +815,9 @@ func startForwarders(ctx context.Context, tnet *netstack.Net, forwards map[strin
 	for fwdStr, fwd := range forwards {
 		var listenNet netOp
 		switch fwd.ListenNet {
-		case HostNetT:
+		case HostNetStackT:
 			listenNet = localNetOp
-		case TunNetT:
+		case TunNetStackT:
 			listenNet = tunnelNetOp
 		default:
 			return nil, fmt.Errorf("unsupported listen net type: %q", fwd.ListenNet)
@@ -769,9 +825,9 @@ func startForwarders(ctx context.Context, tnet *netstack.Net, forwards map[strin
 
 		var dialNet netOp
 		switch fwd.DialNet {
-		case HostNetT:
+		case HostNetStackT:
 			dialNet = localNetOp
-		case TunNetT:
+		case TunNetStackT:
 			dialNet = tunnelNetOp
 		default:
 			return nil, fmt.Errorf("unsupported dial net type: %q", fwd.ListenNet)
@@ -1156,19 +1212,19 @@ func (o Addr) String() string {
 	return net.JoinHostPort(o.addr, strconv.Itoa(int(o.port)))
 }
 
-func parseForwarderTransitSpec(str string) (NetT, Addr, error) {
+func parseTransitSpec(str string) (NetStackT, Addr, error) {
 	fields := strings.Fields(strings.TrimSpace(str))
 
 	if len(fields) != 3 {
-		return UnknownNetT, Addr{}, errors.New("format should be: <net-type> <proto> <address>")
+		return UnknownNetStackT, Addr{}, errors.New("format should be: <net-stack> <protocol> <address>")
 	}
 
-	var netT NetT
+	var netT NetStackT
 	switch fields[0] {
 	case "host", "tun":
-		netT = NetT(fields[0])
+		netT = NetStackT(fields[0])
 	default:
-		return UnknownNetT, Addr{}, fmt.Errorf("unknown network type: %q", fields[0])
+		return UnknownNetStackT, Addr{}, fmt.Errorf("unknown network stack: %q", fields[0])
 	}
 
 	proto := ProtocolT(fields[1])
@@ -1176,7 +1232,7 @@ func parseForwarderTransitSpec(str string) (NetT, Addr, error) {
 
 	addr, err := strToAddr(proto, addrStr)
 	if err != nil {
-		return UnknownNetT, Addr{}, fmt.Errorf("failed to parse address %q - %w",
+		return UnknownNetStackT, Addr{}, fmt.Errorf("failed to parse address %q - %w",
 			addrStr, err)
 	}
 
@@ -1185,9 +1241,9 @@ func parseForwarderTransitSpec(str string) (NetT, Addr, error) {
 
 type ForwarderSpec struct {
 	Name       string
-	ListenNet  NetT
+	ListenNet  NetStackT
 	ListenAddr Addr
-	DialNet    NetT
+	DialNet    NetStackT
 	DialAddr   Addr
 }
 
@@ -1201,12 +1257,12 @@ func (o ForwarderSpec) String() string {
 		o.DialAddr.String()
 }
 
-type NetT string
+type NetStackT string
 
 const (
-	UnknownNetT NetT = ""
-	HostNetT    NetT = "host"
-	TunNetT     NetT = "tun"
+	UnknownNetStackT NetStackT = ""
+	HostNetStackT    NetStackT = "host"
+	TunNetStackT     NetStackT = "tun"
 )
 
 type ProtocolT string
