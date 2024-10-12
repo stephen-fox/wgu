@@ -161,7 +161,7 @@ HELLO WORLD EXAMPLE
   Edit peer0's config file, and make it look similar to the following:
 
     [Interface]
-    PrivateKey = (...)
+    PrivateKey = # (...)
     ListenPort = 4141
     Address = 192.168.0.1/24
 
@@ -172,13 +172,13 @@ HELLO WORLD EXAMPLE
 
     [Peer]
     Name = peer1
-    PublicKey = (peer1's public key goes here)
+    PublicKey = # (peer1's public key goes here)
     AllowedIPs = 192.168.0.2/32
 
   Modify peer1's config file to look like the following:
 
     [Interface]
-    PrivateKey = (...)
+    PrivateKey = # (...)
     Address = 192.168.0.2/24
 
     [Forwarder]
@@ -188,7 +188,7 @@ HELLO WORLD EXAMPLE
 
     [Peer]
     Name = peer0
-    PublicKey = (peer0's public key goes here)
+    PublicKey = # (peer0's public key goes here)
     Endpoint = 127.0.0.1:4141
     AllowedIPs = 192.168.0.1/32
 
@@ -218,7 +218,7 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
   Edit peer0's config file, and make it look similar to the following:
 
     [Interface]
-    PrivateKey = (...)
+    PrivateKey = # (...)
     ListenPort = 4141
 
     [Forwarder]
@@ -228,12 +228,12 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
 
     [Peer]
     Name = peer1
-    PublicKey = (peer1's public key goes here)
+    PublicKey = # (peer1's public key goes here)
 
   Modify peer1's config file to look like the following:
 
     [Interface]
-    PrivateKey = (...)
+    PrivateKey = # (...)
 
     [Forwarder]
     Name = example host forward
@@ -242,7 +242,7 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
 
     [Peer]
     Name = peer0
-    PublicKey = (peer0's public key goes here)
+    PublicKey = # (peer0's public key goes here)
     Endpoint = 127.0.0.1:4141
 
   To create the tunnel *and* enable automatic address planning,

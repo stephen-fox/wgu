@@ -253,7 +253,7 @@ Edit peer0's config file, and make it look similar to the following:
 
 ```ini
 [Interface]
-PrivateKey = (...)
+PrivateKey = # (...)
 ListenPort = 4141
 Address = 192.168.0.1/24
 
@@ -264,7 +264,7 @@ Dial = host tcp 127.0.0.1:2000
 
 [Peer]
 Name = peer1
-PublicKey = (peer1's public key goes here)
+PublicKey = # (peer1's public key goes here)
 AllowedIPs = 192.168.0.2/32
 ```
 
@@ -272,7 +272,7 @@ Modify peer1's config file to look like the following:
 
 ```ini
 [Interface]
-PrivateKey = (...)
+PrivateKey = # (...)
 Address = 192.168.0.2/24
 
 [Forwarder]
@@ -282,7 +282,7 @@ Dial = tun tcp @peer0:2000
 
 [Peer]
 Name = peer0
-PublicKey = (peer0's public key goes here)
+PublicKey = # (peer0's public key goes here)
 Endpoint = 127.0.0.1:4141
 AllowedIPs = 192.168.0.1/32
 ```
@@ -324,7 +324,7 @@ Edit peer0's config file, and make it look similar to the following:
 
 ```ini
 [Interface]
-PrivateKey = (...)
+PrivateKey = # (...)
 ListenPort = 4141
 
 [Forwarder]
@@ -334,14 +334,14 @@ Dial = host tcp 127.0.0.1:2000
 
 [Peer]
 Name = peer1
-PublicKey = (peer1's public key goes here)
+PublicKey = # (peer1's public key goes here)
 ```
 
 Modify peer1's config file to look like the following:
 
 ```ini
 [Interface]
-PrivateKey = (...)
+PrivateKey = # (...)
 
 [Forwarder]
 Name = example host forward
@@ -350,7 +350,7 @@ Dial = tun tcp @peer0:2000
 
 [Peer]
 Name = peer0
-PublicKey = (peer0's public key goes here)
+PublicKey = # (peer0's public key goes here)
 Endpoint = 127.0.0.1:4141
 ```
 
