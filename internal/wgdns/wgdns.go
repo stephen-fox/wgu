@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"strings"
 	"time"
 
 	"gitlab.com/stephen-fox/wgu/internal/wgconfig"
@@ -47,10 +46,7 @@ func MonitorPeers(ctx context.Context, peers []*wgconfig.Peer, device *device.De
 func MonitorPeer(ctx context.Context, config *wgconfig.Peer, device *device.Device, logger *log.Logger) *PeerMonitor {
 	name := config.Endpoint.Host()
 
-	logPrefix := "[dns-peer-monitor " + name + "] "
-	if !strings.HasSuffix(logger.Prefix(), " ") {
-		logPrefix = " " + logPrefix
-	}
+	logPrefix := logger.Prefix() + "[dns-peer-monitor " + name + "] "
 
 	monitor := &PeerMonitor{
 		config: config,
