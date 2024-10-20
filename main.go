@@ -40,7 +40,7 @@ const (
   ` + appName + ` ` + helpCmd + `
   ` + appName + ` ` + genconfigCmd + ` [dir]
   ` + appName + ` ` + pubkeyCmd + ` < private-key-file
-  ` + appName + ` ` + pubkeyFromConfigCmd + ` < public-key-file
+  ` + appName + ` ` + pubkeyFromConfigCmd + ` [config-file] [< config-file]
   ` + appName + ` ` + pubkeyAddrCmd + ` < public-key-file
   ` + appName + ` ` + upCmd + ` [options] CONFIG-PATH
 
@@ -71,7 +71,7 @@ OPTIONS
                        to stdout
   ` + pubkeyCmd + `             - Read a WireGuard private key from stdin and write
                        its public key to stdout
-  ` + pubkeyFromConfigCmd + ` - Read a configuration file from stdin, parse
+  ` + pubkeyFromConfigCmd + ` - Read a configuration file from a path or stdin, parse
                        its private key, and write the public key to stdout
   ` + pubkeyAddrCmd + `        - (automatic address planning mode) - Read a public key
                        from stdin and convert it to an IPv6 address
@@ -273,6 +273,8 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
 	udpTimeoutArg          = "udp-timeout"
 
 	helpArgv = "'" + appName + " " + helpCmd + "'"
+
+	defConfigFileName = appName + ".conf"
 )
 
 var (
@@ -348,7 +350,42 @@ func mainWithError() error {
 
 		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(pub[:]) + "\n")
 	case pubkeyFromConfigCmd:
-		cfg, err := wgconfig.Parse(os.Stdin)
+		srcArg := flagSet.Arg(1)
+
+		src := os.Stdin
+		defer src.Close()
+
+		switch srcArg {
+		case "":
+			inStat, _ := os.Stdin.Stat()
+			if inStat.Mode()&os.ModeCharDevice == 0 {
+				// Use stdin.
+				break
+			}
+
+			configDirPath, err := defConfigDirPath()
+			if err != nil {
+				return err
+			}
+
+			configPath := filepath.Join(configDirPath, defConfigFileName)
+
+			src, err = os.Open(configPath)
+			if err != nil {
+				return fmt.Errorf("failed to open config file '%s' - %w",
+					configPath, err)
+			}
+		default:
+			var err error
+
+			src, err = os.Open(flagSet.Arg(1))
+			if err != nil {
+				return fmt.Errorf("failed to open config file '%s' - %w",
+					srcArg, err)
+			}
+		}
+
+		cfg, err := wgconfig.Parse(src)
 		if err != nil {
 			return err
 		}
@@ -385,9 +422,9 @@ func genConfig() error {
 	var configDirPath string
 	var privateKeyPathInConfig string
 	const privateKeyFileName = "private-key"
+	var err error
 
 	if flag.NArg() > 1 {
-		var err error
 		configDirPath, err = filepath.Abs(flag.Arg(1))
 		if err != nil {
 			return err
@@ -395,17 +432,15 @@ func genConfig() error {
 
 		privateKeyPathInConfig = filepath.Join(configDirPath, privateKeyFileName)
 	} else {
-		homeDirPath, err := os.UserHomeDir()
+		configDirPath, err = defConfigDirPath()
 		if err != nil {
 			return err
 		}
 
-		configDirPath = filepath.Join(homeDirPath, ".wgu")
-
-		privateKeyPathInConfig = "~/.wgu/" + privateKeyFileName
+		privateKeyPathInConfig = "~/" + appName + "/" + privateKeyFileName
 	}
 
-	err := os.MkdirAll(configDirPath, 0o700)
+	err = os.MkdirAll(configDirPath, 0o700)
 	if err != nil {
 		return err
 	}
@@ -415,7 +450,7 @@ func genConfig() error {
 		return err
 	}
 
-	configFilePath := filepath.Join(configDirPath, appName+".conf")
+	configFilePath := filepath.Join(configDirPath, defConfigFileName)
 
 	_, statErr := os.Stat(configFilePath)
 	if statErr == nil {
@@ -480,6 +515,15 @@ PrivateKey = file://`+privateKeyPathInConfig+`
 		wgkeys.NoisePublicKeyFromPrivate(privateKey)[:]) + "\n")
 
 	return nil
+}
+
+func defConfigDirPath() (string, error) {
+	homeDirPath, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get user's home directory - %w", err)
+	}
+
+	return filepath.Join(homeDirPath, "."+appName), nil
 }
 
 func up() error {

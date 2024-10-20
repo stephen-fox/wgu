@@ -200,14 +200,18 @@ z9yJgu9cvwbygPzuUtzcmkuB2K2nxA6viKj1kUDj4Ug=
 
 #### `pubkey-from-config`
 
-Reads a configuration file from standard input, parses the private key
-from the file, and writes the corresponding public key to standard output.
+Reads a configuration file from a path or standard input, parses the
+private key from the file, and writes the corresponding public key to
+standard output.
 
 Example:
 
 ```console
 $ wgu pubkey-from-config < example-config-file
 z9yJgu9cvwbygPzuUtzcmkuB2K2nxA6viKj1kUDj4Ug=
+$ # Or read from the default config file path:
+$ wgu pubkey-from-config
+M2njNIDzUKZHa8z55V0u4pb5BJSikUZcmBQkRH06Zg8=
 ```
 
 #### `pubkey-addr`
