@@ -370,3 +370,11 @@ Finally, in two different shells, test the tunnel using nc:
 $ nc -l 2000
 $ echo 'hello' | nc 127.0.0.1 3000
 ```
+
+## Special thanks
+
+wgu would not have been possible without Jonathan Giannuzzi's original wgfwd
+project - thank you, Jonathan.
+
+Thank you to @SeungKang for helping me implement features and fix bugs, plus
+spending tons of time testing :)
