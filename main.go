@@ -842,7 +842,7 @@ func startForwarders(ctx context.Context, tnet *netstack.Net, forwards map[strin
 		case TunNetStackT:
 			dialNet = tunnelNetOp
 		default:
-			return nil, fmt.Errorf("unsupported dial net stack: %q", fwd.ListenNet)
+			return nil, fmt.Errorf("unsupported dial net stack: %q", fwd.DialNet)
 		}
 
 		loggerInfo.Printf("starting %q (%s)...", fwd.Name, fwd.String())
