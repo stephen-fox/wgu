@@ -20,9 +20,10 @@ wgu expands on wgfwd's functionality with the following features:
   protocols (for example: forwarding Unix sockets over TCP / UDP)
 - Support for WireGuard configuration syntax via a configuration file
 - Support for commonly-used `wg` helper commands like `genkey` and `pubkey`
-- Additional helper commands like `genconf` to make setup easier
+- New `genconf` command auto-generates a configuration file to make
+  getting started easier
 - Support for resolving peers' external addresses using DNS hostnames
-- Store the private key in a separate file
+- Store the private key in a file outside of the configuration file
 - Expand the WireGuard interface's address and peers' addresses using
   magic strings
 
