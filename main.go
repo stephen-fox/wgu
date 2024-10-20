@@ -745,16 +745,28 @@ func (o *Config) parseForwarder(fwd *ini.Section) error {
 		return fmt.Errorf("forward config already specified: %q", name)
 	}
 
+	var dialTimeout time.Duration
+
+	dialTimeoutStr, _ := fwd.FirstParam("DialTimeout")
+	if dialTimeoutStr != nil {
+		dialTimeout, err = time.ParseDuration(dialTimeoutStr.Value)
+		if err != nil {
+			return fmt.Errorf("failed to parse dial timeout: %q - %w",
+				dialTimeoutStr.Value, err)
+		}
+	}
+
 	if o.Forwarders == nil {
 		o.Forwarders = make(map[string]*ForwarderSpec)
 	}
 
 	o.Forwarders[name.Value] = &ForwarderSpec{
-		Name:       name.Value,
-		ListenNet:  lNetwork,
-		ListenAddr: lAddr,
-		DialNet:    dNetwork,
-		DialAddr:   dAddr,
+		Name:           name.Value,
+		ListenNet:      lNetwork,
+		ListenAddr:     lAddr,
+		DialNet:        dNetwork,
+		DialAddr:       dAddr,
+		OptDialTimeout: dialTimeout,
 	}
 
 	return nil
@@ -902,7 +914,24 @@ func forwardStream(ctx context.Context, waitg *sync.WaitGroup, spec *ForwarderSp
 func dialAndCopyStream(ctx context.Context, src net.Conn, dNet netOp, spec *ForwarderSpec) {
 	defer src.Close()
 
-	dst, err := dNet.Dial(ctx, string(spec.DialAddr.Protocol()), spec.DialAddr.String())
+	var dst net.Conn
+	var err error
+
+	if spec.OptDialTimeout > 0 {
+		retrier := retryDialer{dNet.Dial}
+
+		dst, err = retrier.dial(
+			ctx,
+			string(spec.DialAddr.Protocol()),
+			spec.DialAddr.String(),
+			spec.OptDialTimeout)
+	} else {
+		dst, err = dNet.Dial(
+			ctx,
+			string(spec.DialAddr.Protocol()),
+			spec.DialAddr.String())
+	}
+
 	if err != nil {
 		if lerr {
 			loggerErr.Printf("[%s] error connecting to remote - %s",
@@ -1033,6 +1062,7 @@ func forwardDatagram(ctx context.Context, waitg *sync.WaitGroup, spec *Forwarder
 				dAddrStr:    dAddrStr,
 				bufSizeByte: bufSizeBytes,
 				remoteConns: srcToDstConns,
+				optTimeout:  spec.OptDialTimeout,
 			})
 		}
 	}()
@@ -1053,10 +1083,28 @@ type dialAndCopyDatagramArgs struct {
 	dAddrStr    string
 	bufSizeByte int
 	remoteConns *connMap
+	optTimeout  time.Duration
 }
 
 func dialAndCopyDatagram(ctx context.Context, args dialAndCopyDatagramArgs) {
-	remote, err := args.dNet.Dial(ctx, string(args.dProto), args.dAddrStr)
+	var remote net.Conn
+	var err error
+
+	if args.optTimeout > 0 {
+		retrier := retryDialer{args.dNet.Dial}
+
+		remote, err = retrier.dial(
+			ctx,
+			string(args.dProto),
+			args.dAddrStr,
+			args.optTimeout)
+	} else {
+		remote, err = args.dNet.Dial(
+			ctx,
+			string(args.dProto),
+			args.dAddrStr)
+	}
+
 	if err != nil {
 		if lerr {
 			loggerErr.Printf("[%s] error connecting to remote - %s",
@@ -1146,6 +1194,42 @@ func (o *connMap) delete(addr string) {
 	defer o.rwMu.Unlock()
 
 	delete(o.conns, addr)
+}
+
+type retryDialer struct {
+	DialFn func(ctx context.Context, network string, address string) (net.Conn, error)
+}
+
+func (o *retryDialer) dial(ctx context.Context, network string, addr string, timeout time.Duration) (net.Conn, error) {
+	wctx, cancelFn := context.WithTimeout(ctx, timeout)
+	defer cancelFn()
+
+	sleep := time.Second
+	scale := time.Duration(2)
+	attempts := 0
+
+	for {
+		attempts++
+
+		conn, err := o.DialFn(wctx, network, addr)
+		if err == nil {
+			return conn, nil
+		}
+
+		select {
+		case <-wctx.Done():
+			return nil, fmt.Errorf("gave up connecting after %d attempt(s) - %w (last error: %v)",
+				attempts, wctx.Err(), err)
+		case <-time.After(sleep):
+			// 1 * 2
+			// 1 * 5
+			// 1 * 8
+			// 1 * 11
+			sleep = sleep * scale
+
+			scale = scale + 3
+		}
+	}
 }
 
 func strToAddr(proto ProtocolT, str string) (Addr, error) {
@@ -1240,11 +1324,12 @@ func parseTransitSpec(str string) (NetStackT, Addr, error) {
 }
 
 type ForwarderSpec struct {
-	Name       string
-	ListenNet  NetStackT
-	ListenAddr Addr
-	DialNet    NetStackT
-	DialAddr   Addr
+	Name           string
+	ListenNet      NetStackT
+	ListenAddr     Addr
+	DialNet        NetStackT
+	DialAddr       Addr
+	OptDialTimeout time.Duration
 }
 
 func (o ForwarderSpec) String() string {
