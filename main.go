@@ -62,20 +62,20 @@ OPTIONS
 
 	helpLong = `COMMANDS
 
-  ` + helpCmd + `               - Display configuration syntax help and examples
-  ` + genconfigCmd + ` [dir]    - Generate an example configuration file and private key.
-                       The config and private key files are written to ~/.wgu
-                       by default. This can be overriden by specifying a path
-                       as an argument
-  ` + genkeyCmd + `             - Generate a new WireGuard private key and write it
-                       to stdout
-  ` + pubkeyCmd + `             - Read a WireGuard private key from stdin and write
-                       its public key to stdout
-  ` + pubkeyFromConfigCmd + ` - Read a configuration file from a path or stdin, parse
-                       its private key, and write the public key to stdout
-  ` + pubkeyAddrCmd + `        - (automatic address planning mode) - Read a public key
-                       from stdin and convert it to an IPv6 address
-  ` + upCmd + ` CONFIG-PATH     - Start the virtual WireGuard interface and forwarders
+  ` + helpCmd + `           - Display configuration syntax help and examples
+  ` + genconfigCmd + ` [dir]  - Generate an example configuration file and private key.
+                   The config and private key files are written to ~/.wgu
+                   by default. This can be overriden by specifying a path
+                   as an argument
+  ` + genkeyCmd + `         - Generate a new WireGuard private key and write it
+                   to stdout
+  ` + pubkeyCmd + `         - Read a WireGuard private key from stdin and write
+                   its public key to stdout
+  ` + pubkeyFromConfigCmd + `     - Read a configuration file from a path or stdin, parse
+                   its private key, and write the public key to stdout
+  ` + pubkeyAddrCmd + `     - (automatic address planning mode) - Read a public key
+                   from stdin and convert it to an IPv6 address
+  ` + upCmd + ` CONFIG-PATH - Start the virtual WireGuard interface and forwarders
 
 FORWARDER CONFIGURATION
   Port forwards are defined in a Forwarder configuration section using
@@ -258,11 +258,11 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
 `
 
 	helpCmd             = "help"
-	genconfigCmd        = "genconfig"
+	genconfigCmd        = "genconf"
 	genkeyCmd           = "genkey"
 	pubkeyCmd           = "pubkey"
-	pubkeyFromConfigCmd = "pubkey-from-config"
-	pubkeyAddrCmd       = "pubkey-addr"
+	pubkeyFromConfigCmd = "pubkeyconf"
+	pubkeyAddrCmd       = "pubkeyaddr"
 	upCmd               = "up"
 
 	logLevelArg            = "L"

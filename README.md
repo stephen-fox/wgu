@@ -20,7 +20,7 @@ wgu expands on wgfwd's functionality with the following features:
   protocols (for example: forwarding Unix sockets over TCP / UDP)
 - Support for WireGuard configuration syntax via a configuration file
 - Support for commonly-used `wg` helper commands like `genkey` and `pubkey`
-- Additional helper commands like `genconfig` to make setup easier
+- Additional helper commands like `genconf` to make setup easier
 - Support for resolving peers' external addresses using DNS hostnames
 - Store the private key in a separate file
 - Expand the WireGuard interface's address and peers' addresses using
@@ -29,7 +29,7 @@ wgu expands on wgfwd's functionality with the following features:
 ## Basic example
 
 ```console
-$ wgu genconfig
+$ wgu genconf
 z9yJgu9cvwbygPzuUtzcmkuB2K2nxA6viKj1kUDj4Ug=
 $ # Modify ~/.wgu/wgu.conf as desired.
 $ wgu up ~/.wgu/wgu.conf
@@ -54,13 +54,13 @@ as WireGuard. Command line arguments can be used to modify wgu's
 behavior as well.
 
 After installing wgu, it is recommended to create an example configuration
-file and a private key file using the `genconfig` command. The following
+file and a private key file using the `genconf` command. The following
 example will create a `.wgu` directory in the user's home directory
 containing an example configuration file and a private key file.
 The private key's corresponding public key is written to standard output:
 
 ```console
-$ wgu genconfig
+$ wgu genconf
 z9yJgu9cvwbygPzuUtzcmkuB2K2nxA6viKj1kUDj4Ug=
 ```
 
@@ -154,7 +154,7 @@ $ wgu help
 $ wgu help | less
 ```
 
-#### `genconfig`
+#### `genconf`
 
 Generates an example configuration file and a private key file in the
 user's home directory under `.wgu/` followed by writing the public key
@@ -163,7 +163,7 @@ to standard output.
 Example:
 
 ```console
-$ wgu genconfig
+$ wgu genconf
 z9yJgu9cvwbygPzuUtzcmkuB2K2nxA6viKj1kUDj4Ug= 
 ```
 
@@ -171,7 +171,7 @@ If a different directory is desired, simply specify it as an argument.
 If the directory does not already exist, wgu will create it for you:
 
 ```console
-$ wgu genconfig /usr/local/etc/wgu
+$ wgu genconf /usr/local/etc/wgu
 z9yJgu9cvwbygPzuUtzcmkuB2K2nxA6viKj1kUDj4Ug=
 ```
 
@@ -198,7 +198,7 @@ $ wgu pubkey < example-private-key-file
 z9yJgu9cvwbygPzuUtzcmkuB2K2nxA6viKj1kUDj4Ug=
 ```
 
-#### `pubkey-from-config`
+#### `pubkeyconf`
 
 Reads a configuration file from a path or standard input, parses the
 private key from the file, and writes the corresponding public key to
@@ -207,14 +207,14 @@ standard output.
 Example:
 
 ```console
-$ wgu pubkey-from-config < example-config-file
+$ wgu pubkeyconf < example-config-file
 z9yJgu9cvwbygPzuUtzcmkuB2K2nxA6viKj1kUDj4Ug=
 $ # Or read from the default config file path:
-$ wgu pubkey-from-config
+$ wgu pubkeyconf
 M2njNIDzUKZHa8z55V0u4pb5BJSikUZcmBQkRH06Zg8=
 ```
 
-#### `pubkey-addr`
+#### `pubkeyaddr`
 
 Note: This is for use with the `automatic address planning mode` feature.
 
@@ -223,7 +223,7 @@ Generates an IPv6 address for the given WireGuard public key.
 Example:
 
 ```console
-$ wgu pubkey-addr < another-peers-public-key
+$ wgu pubkeyaddr < another-peers-public-key
 483b:9c67:9217:d415:774d:480:f642:1e5c
 ```
 
@@ -245,13 +245,13 @@ In this example, we will create two WireGuard peers on the current computer
 and forward connections to TCP port 2000 to port 3000.
 
 First, create two configuration directories named `peer0` and `peer1`
-using `genconfig`:
+using `genconf`:
 
 ```console
 $ cd $(mktemp -d)
-$ wgu genconfig peer0
+$ wgu genconf peer0
 (peer0's public key)
-$ wgu genconfig peer1
+$ wgu genconf peer1
 (peer1's public key)
 ```
 
@@ -316,13 +316,13 @@ from their public key. Like the previous example, we will create two
 WireGuard peers on the current computer.
 
 First, create two configuration directories named `peer0` and `peer1`
-using genconfig:
+using genconf:
 
 ```console
 $ cd $(mktemp -d)
-$ wgu genconfig peer0
+$ wgu genconf peer0
 (peer0's public key)
-$ wgu genconfig peer1
+$ wgu genconf peer1
 (peer1's public key)
 ```
 
