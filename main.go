@@ -1,4 +1,4 @@
-// wgu (WireGuard User Space) is a fork of Jonathan Giannuzzi's wgfwd.
+// wgu (WireGuard Userspace) is a fork of Jonathan Giannuzzi's wgfwd.
 // wgu allows users to create WireGuard tunnels without running as root.
 // Connections to network services are managed using forwarders. Each
 // forwarder tells wgu where to listen for incoming connections and
@@ -45,7 +45,7 @@ const (
   ` + appName + ` ` + upCmd + ` [options] CONFIG-PATH
 
 DESCRIPTION
-  wgu (WireGuard User Space) is a fork of Jonathan Giannuzzi's wgfwd.
+  wgu (WireGuard Userspace) is a fork of Jonathan Giannuzzi's wgfwd.
   wgu allows users to create WireGuard tunnels without running as root.
   Connections to network services are managed using forwarders. Each
   forwarder tells wgu where to listen for incoming connections and
