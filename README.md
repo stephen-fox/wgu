@@ -85,7 +85,10 @@ The following general application parameters are available:
   simple WireGuard topologies without planning out IP address allocations
   or needing to know each peer's WireGuard address. It is unnecessary to
   specify the 'Address' configuration parameter for other peers in this
-  mode. Refer to the [Examples section](#Examples) for an example.
+  mode. Refer to the [automatic address planning mode example][x-aapm]
+  for an example.
+
+[x-aapm]: #automatic-address-planning-mode-example
 
 #### Forwarder configuration
 
