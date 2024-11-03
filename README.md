@@ -33,6 +33,7 @@ wgu expands on wgfwd's functionality with the following features:
 $ wgu genconf
 z9yJgu9cvwbygPzuUtzcmkuB2K2nxA6viKj1kUDj4Ug=
 $ # Modify ~/.wgu/wgu.conf as desired.
+$ # Create the WireGuard tunnels:
 $ wgu up
 $ # ... or explicitly specify the configuration file path:
 $ wgu up ~/.wgu/wgu.conf
