@@ -42,7 +42,7 @@ const (
   ` + appName + ` ` + pubkeyCmd + ` < private-key-file
   ` + appName + ` ` + pubkeyFromConfigCmd + ` [config-file] [< config-file]
   ` + appName + ` ` + pubkeyAddrCmd + ` < public-key-file
-  ` + appName + ` ` + upCmd + ` [options] CONFIG-PATH
+  ` + appName + ` ` + upCmd + ` [options] [config-file]
 
 DESCRIPTION
   wgu (WireGuard Userspace) is a fork of Jonathan Giannuzzi's wgfwd.
@@ -62,20 +62,22 @@ OPTIONS
 
 	helpLong = `COMMANDS
 
-  ` + helpCmd + `           - Display configuration syntax help and examples
-  ` + genconfigCmd + ` [dir]  - Generate an example configuration file and private key.
-                   The config and private key files are written to ~/.wgu
-                   by default. This can be overriden by specifying a path
-                   as an argument
-  ` + genkeyCmd + `         - Generate a new WireGuard private key and write it
-                   to stdout
-  ` + pubkeyCmd + `         - Read a WireGuard private key from stdin and write
-                   its public key to stdout
-  ` + pubkeyFromConfigCmd + `     - Read a configuration file from a path or stdin, parse
-                   its private key, and write the public key to stdout
-  ` + pubkeyAddrCmd + `     - (automatic address planning mode) - Read a public key
-                   from stdin and convert it to an IPv6 address
-  ` + upCmd + ` CONFIG-PATH - Start the virtual WireGuard interface and forwarders
+  ` + helpCmd + `             - Display configuration syntax help and examples
+  ` + genconfigCmd + ` [dir]    - Generate an example configuration file and private key.
+                     The config and private key files are written to ~/.wgu
+                     by default. This can be overriden by specifying a path
+                     as an argument
+  ` + genkeyCmd + `           - Generate a new WireGuard private key and write it
+                     to stdout
+  ` + pubkeyCmd + `           - Read a WireGuard private key from stdin and write
+                     its public key to stdout
+  ` + pubkeyFromConfigCmd + `       - Read a configuration file from a path or stdin, parse
+                     its private key, and write the public key to stdout
+  ` + pubkeyAddrCmd + `       - (automatic address planning mode) - Read a public key
+                     from stdin and convert it to an IPv6 address
+  ` + upCmd + ` [config-file] - Start the virtual WireGuard interface and forwarders.
+                     Defaults to using the configuration file located at
+                     ~/.` + appName + `/` + defConfigFileName + ` if one is unspecified
 
 FORWARDER CONFIGURATION
   Port forwards are defined in a Forwarder configuration section using
@@ -604,7 +606,15 @@ func up() error {
 	var configFD *os.File
 	switch configPath {
 	case "":
-		return errors.New("please specify a config file path as the last argument")
+		configDirPath, err := defConfigDirPath()
+		if err != nil {
+			return fmt.Errorf("failed to get default config directory - %w", err)
+		}
+
+		configFD, err = os.Open(filepath.Join(configDirPath, defConfigFileName))
+		if err != nil {
+			return err
+		}
 	case "-":
 		configFD = os.Stdin
 	default:

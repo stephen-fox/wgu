@@ -33,6 +33,8 @@ wgu expands on wgfwd's functionality with the following features:
 $ wgu genconf
 z9yJgu9cvwbygPzuUtzcmkuB2K2nxA6viKj1kUDj4Ug=
 $ # Modify ~/.wgu/wgu.conf as desired.
+$ wgu up
+$ # ... or explicitly specify the configuration file path:
 $ wgu up ~/.wgu/wgu.conf
 ```
 
@@ -230,11 +232,17 @@ $ wgu pubkeyaddr < another-peers-public-key
 
 #### `up`
 
-Creates the WireGuard tunnel(s).
+Creates the WireGuard tunnel(s) using the specified configuration.
+Defaults to using the configuration file at `~/.wgu/wgu.conf` if
+no configuration file is specified.
 
 Example:
 
 ```console
+$ # The following line uses the configuration file at ~/.wgu/wgu.conf:
+$ wgu up
+$ # The following line uses a configuration file named "wgu.conf"
+$ # in the current working directory:
 $ wgu up wgu.conf
 ```
 
