@@ -30,13 +30,14 @@ wgu expands on wgfwd's functionality with the following features:
 ## Basic example
 
 ```console
+# Generate a config file by executing:
 $ wgu genconf
 z9yJgu9cvwbygPzuUtzcmkuB2K2nxA6viKj1kUDj4Ug=
 $ # Modify ~/.wgu/wgu.conf as desired.
-$ # Create the WireGuard tunnels:
+$ # Create the WireGuard tunnels by executing:
 $ wgu up
-$ # ... or explicitly specify the configuration file path:
-$ wgu up ~/.wgu/wgu.conf
+$ # ... or specify a different configuration file path:
+$ wgu up ~/.wgu/some-other-wgu.conf
 ```
 
 For additional help and examples, refer to the current README
