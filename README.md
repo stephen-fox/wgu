@@ -30,7 +30,7 @@ wgu expands on wgfwd's functionality with the following features:
 ## Basic example
 
 ```console
-# Generate a config file by executing:
+$ # Generate a config file by executing:
 $ wgu genconf
 z9yJgu9cvwbygPzuUtzcmkuB2K2nxA6viKj1kUDj4Ug=
 $ # Modify ~/.wgu/wgu.conf as desired.
