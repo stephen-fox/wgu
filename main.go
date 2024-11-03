@@ -79,6 +79,38 @@ OPTIONS
                      Defaults to using the configuration file located at
                      ~/.` + appName + `/` + defConfigFileName + ` if one is unspecified
 
+CONFIGURATION
+  After installing wgu, it is recommended to create an example configuration
+  file and a private key file using the ` + genconfigCmd + ` command. The following
+  example will create a .wgu directory in the user's home directory
+  containing an example configuration file and a private key file.
+  The private key's corresponding public key is written to standard output:
+
+    $ wgu genconf
+    z9yJgu9cvwbygPzuUtzcmkuB2K2nxA6viKj1kUDj4Ug=
+
+  ` + appName + ` is configured using an INI configuration file in a similar manner
+  to WireGuard. Additional options can be specified using command line
+  arguments.
+
+  General application settings can be specified in the configuration file
+  in the ` + appOptionsConfigSection + ` section. For example:
+
+    [` + appOptionsConfigSection + `]
+    ExampleParameter = some value
+
+  The following general application parameters are available:
+
+    - ` + autoAddrPlanningModeConfigOpt + ` - Enables automatic address planning mode
+      if set to "true". Defaults to "false" if unspecified. In this mode,
+      each peer's virtual WireGuard address is generated from its public key
+      in the form of an IPv6 address. This mode makes it easier to construct
+      simple WireGuard topologies without planning out IP address allocations
+      or needing to know each peer's WireGuard address. It is unnecessary to
+      specify the 'Address' configuration parameter for other peers in this
+      mode. Refer to the AUTOMATIC ADDRESS PLANNING MODE EXAMPLE section for
+      an example.
+
 FORWARDER CONFIGURATION
   Port forwards are defined in a Forwarder configuration section using
   the following configuration fields:
@@ -135,19 +167,6 @@ FORWARDER MAGIC STRINGS
     @<peer-name>
       The address of the peer with the corresponding name according
       to the peer's Name field
-
-AUTOMATIC ADDRESS PLANNING MODE
-  If the -` + autoAddressPlanningArg + ` argument is specified, then each peer's virtual WireGuard
-  address is generated from its public key in the form of an IPv6 address.
-  This makes it easier to construct simple WireGuard topologies without
-  planning out IP address allocations or needing to know each peer's
-  WireGuard address.
-
-  In this mode, it is unnecessary to specify the 'Address' configuration
-  parameter for other peers.
-
-  Refer to the AUTOMATIC ADDRESS PLANNING MODE EXAMPLE section for
-  an example.
 
 HELLO WORLD EXAMPLE
   In this example, we will create two WireGuard peers on the current computer
@@ -219,6 +238,9 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
 
   Edit peer0's config file, and make it look similar to the following:
 
+    [` + appOptionsConfigSection + `]
+    ` + autoAddrPlanningModeConfigOpt + ` = true
+
     [Interface]
     PrivateKey = # (...)
     ListenPort = 4141
@@ -233,6 +255,9 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
     PublicKey = # (peer1's public key goes here)
 
   Modify peer1's config file to look like the following:
+
+    [` + appOptionsConfigSection + `]
+    ` + autoAddrPlanningModeConfigOpt + ` = true
 
     [Interface]
     PrivateKey = # (...)
@@ -250,8 +275,8 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
   To create the tunnel *and* enable automatic address planning,
   execute the following commands in two different shells:
 
-    $ wgu ` + upCmd + ` -` + autoAddressPlanningArg + ` peer0/wgu.conf
-    $ wgu ` + upCmd + ` -` + autoAddressPlanningArg + ` peer1/wgu.conf
+    $ wgu ` + upCmd + ` peer0/wgu.conf
+    $ wgu ` + upCmd + ` peer1/wgu.conf
 
   Finally, in two different shells, test the tunnel using nc:
 
@@ -267,16 +292,20 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
 	pubkeyAddrCmd       = "pubkeyaddr"
 	upCmd               = "up"
 
-	logLevelArg            = "L"
-	noLogTimestampsArg     = "T"
-	autoAddressPlanningArg = "A"
-	helpArg                = "h"
-	forwardArg             = "f"
-	udpTimeoutArg          = "udp-timeout"
+	logLevelArg        = "L"
+	noLogTimestampsArg = "T"
+	helpArg            = "h"
+	forwardArg         = "f"
+	udpTimeoutArg      = "udp-timeout"
 
 	helpArgv = "'" + appName + " " + helpCmd + "'"
 
 	defConfigFileName = appName + ".conf"
+
+	appOptionsConfigSection       = appName
+	autoAddrPlanningModeConfigOpt = "AutomaticAddressPlanningMode"
+
+	forwarderConfigSection = "Forwarder"
 )
 
 var (
@@ -468,7 +497,10 @@ func genConfig() error {
 			privateKeyFilePath)
 	}
 
-	err = os.WriteFile(configFilePath, []byte(`[Interface]
+	err = os.WriteFile(configFilePath, []byte(`[`+appOptionsConfigSection+`]
+# `+autoAddrPlanningModeConfigOpt+` = true
+
+[Interface]
 PrivateKey = file://`+privateKeyPathInConfig+`
 # Optionally, allow other peers to connect to us:
 # ListenPort = 4141
@@ -541,11 +573,6 @@ func up() error {
 		udpTimeoutArg,
 		2*time.Minute,
 		"UDP timeout")
-
-	autoAddrPlanning := flagSet.Bool(
-		autoAddressPlanningArg,
-		false,
-		"Enable automatic address planning mode (see "+helpArgv+" for details)")
 
 	writeConfig := flagSet.Bool(
 		"write-config",
@@ -642,7 +669,9 @@ func up() error {
 		return fmt.Errorf("failed to parse app config - %w", err)
 	}
 
-	if *autoAddrPlanning {
+	if appCfg.IsAutoAddrPlanningMode {
+		loggerInfo.Println("automatic address planning mode is enabled")
+
 		err = doAutoAddrPlanning(cfg)
 		if err != nil {
 			return fmt.Errorf("failed to do automatic address planning - %w", err)
@@ -749,13 +778,17 @@ func ParseConfig(sections []*ini.Section) (*Config, error) {
 	config := &Config{}
 
 	for _, section := range sections {
-		if section.Name != "Forwarder" {
-			continue
-		}
-
-		err := config.parseForwarder(section)
-		if err != nil {
-			return nil, err
+		switch section.Name {
+		case appOptionsConfigSection:
+			err := config.parseOptions(section)
+			if err != nil {
+				return nil, err
+			}
+		case forwarderConfigSection:
+			err := config.parseForwarder(section)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -763,7 +796,23 @@ func ParseConfig(sections []*ini.Section) (*Config, error) {
 }
 
 type Config struct {
-	Forwarders map[string]*ForwarderSpec
+	IsAutoAddrPlanningMode bool
+	Forwarders             map[string]*ForwarderSpec
+}
+
+func (o *Config) parseOptions(options *ini.Section) error {
+	autoAddrPlanning, _ := options.FirstParam("AutomaticAddressPlanningMode")
+	if autoAddrPlanning != nil {
+		enabled, err := strconv.ParseBool(autoAddrPlanning.Value)
+		if err != nil {
+			return fmt.Errorf("failed to parse automatic address planning mode value: %q - %w",
+				autoAddrPlanning.Value, err)
+		}
+
+		o.IsAutoAddrPlanningMode = enabled
+	}
+
+	return nil
 }
 
 func (o *Config) parseForwarder(fwd *ini.Section) error {

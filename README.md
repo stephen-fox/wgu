@@ -52,13 +52,9 @@ go install gitlab.com/stephen-fox/wgu@latest
 
 ## Configuration
 
-Configuration is specified using an `ini` file with the same syntax
-as WireGuard. Command line arguments can be used to modify wgu's
-behavior as well.
-
 After installing wgu, it is recommended to create an example configuration
 file and a private key file using the `genconf` command. The following
-example will create a `.wgu` directory in the user's home directory
+example will create a .wgu directory in the user's home directory
 containing an example configuration file and a private key file.
 The private key's corresponding public key is written to standard output:
 
@@ -67,16 +63,28 @@ $ wgu genconf
 z9yJgu9cvwbygPzuUtzcmkuB2K2nxA6viKj1kUDj4Ug=
 ```
 
-#### Automatic address planning mode
+wgu is configured using an INI configuration file in a similar manner
+to WireGuard. Additional options can be specified using command line
+arguments.
 
-If the `-A` argument is specified, then each peer's virtual WireGuard
-address is generated from its public key in the form of an IPv6 address.
-This makes it easier to construct simple WireGuard topologies without
-planning out IP address allocations or needing to know each peer's
-WireGuard address.
+General application settings can be specified in the configuration file
+in the wgu section. For example:
 
-In this mode, it is unnecessary to specify the `Address` configuration
-parameter for other peers.
+```ini
+[wgu]
+ExampleParameter = some value
+```
+
+The following general application parameters are available:
+
+- `AutomaticAddressPlanningMode` - Enables automatic address planning mode
+  if set to "true". Defaults to "false" if unspecified. In this mode,
+  each peer's virtual WireGuard address is generated from its public key
+  in the form of an IPv6 address. This mode makes it easier to construct
+  simple WireGuard topologies without planning out IP address allocations
+  or needing to know each peer's WireGuard address. It is unnecessary to
+  specify the 'Address' configuration parameter for other peers in this
+  mode. Refer to the [Examples section](#Examples) for an example.
 
 #### Forwarder configuration
 
@@ -338,6 +346,9 @@ $ wgu genconf peer1
 Edit peer0's config file, and make it look similar to the following:
 
 ```ini
+[wgu]
+AutomaticAddressPlanningMode = true
+
 [Interface]
 PrivateKey = # (...)
 ListenPort = 4141
@@ -355,6 +366,9 @@ PublicKey = # (peer1's public key goes here)
 Modify peer1's config file to look like the following:
 
 ```ini
+[wgu]
+AutomaticAddressPlanningMode = true
+
 [Interface]
 PrivateKey = # (...)
 
@@ -373,8 +387,8 @@ To create the tunnel *and* enable automatic address planning,
 execute the following commands in two different shells:
 
 ```console
-$ wgu up -A peer0/wgu.conf
-$ wgu up -A peer1/wgu.conf
+$ wgu up peer0/wgu.conf
+$ wgu up peer1/wgu.conf
 ```
 
 Finally, in two different shells, test the tunnel using nc:
