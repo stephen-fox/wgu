@@ -39,6 +39,9 @@ $ # ... or explicitly specify the configuration file path:
 $ wgu up ~/.wgu/wgu.conf
 ```
 
+For additional help and examples, refer to the current README
+or execute `wgu help | less`.
+
 ## Installation
 
 First, [install Go][go]. Once Go is installed, the application can be
