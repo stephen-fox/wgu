@@ -468,7 +468,7 @@ func genConfig() error {
 			return err
 		}
 
-		privateKeyPathInConfig = "~/" + appName + "/" + privateKeyFileName
+		privateKeyPathInConfig = "~/." + appName + "/" + privateKeyFileName
 	}
 
 	err = os.MkdirAll(configDirPath, 0o700)
