@@ -6,8 +6,11 @@
   <string>com.gitlab.stephen-fox.wgu</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/local/bin/wgu.sh</string>
+    <string>/Users/REPLACE-ME/go/bin/wgu</string>
+    <string>up</string>
   </array>
+  <key>StandardErrorPath</key>
+  <string>/Users/REPLACE-ME/.wgu/wgu.log</string>
   <key>RunAtLoad</key>
   <true/>
 </dict>
