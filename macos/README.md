@@ -14,5 +14,5 @@ launchctl load -w ~/Library/LaunchAgents/com.gitlab.stephen-fox.wgu.plist
 ## Disable
 
 ```sh
-launchctl unload -w com.gitlab.stephen-fox.wgu.plist
+launchctl unload -w ~/Library/LaunchAgents/com.gitlab.stephen-fox.wgu.plist
 ```
