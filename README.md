@@ -405,6 +405,29 @@ $ nc -l 2000
 $ echo 'hello' | nc 127.0.0.1 3000
 ```
 
+## Troubleshooting
+
+#### Startup failure in FreeBSD jail with host networking
+
+If you are trying to run wgu in a FreeBSD jail that utilizes the host's
+networking stack and you are encountering the following error:
+
+> failed to set listen_port: listen udp6 :X: socket: protocol not supported
+
+... it is likely you need to enable IPv6 in the jail configuration file
+like so:
+
+```diff
+ example {
+   path = "/zroot/jails/${name}";
+   ip4 = "inherit";
++  ip6 = "inherit";
+   mount.devfs;
+   exec.start = "/bin/sh /etc/rc";
+   exec.stop = "/bin/sh /etc/rc.shutdown";
+ }
+```
+
 ## Special thanks
 
 wgu would not have been possible without Jonathan Giannuzzi's original wgfwd
