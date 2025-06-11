@@ -3,12 +3,12 @@
 ## Install
 
 Copy script into:
-`/Users/<your-user>/LaunchAgents/com.gitlab.stephen-fox.wgu.plist`
+`/Users/<your-user>/Library/LaunchAgents/com.gitlab.stephen-fox.wgu.plist`
 
 ## Enable
 
 ```sh
-launchctl load -w ~/LaunchAgents/com.gitlab.stephen-fox.wgu.plist
+launchctl load -w ~/Library/LaunchAgents/com.gitlab.stephen-fox.wgu.plist
 ```
 
 ## Disable
