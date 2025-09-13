@@ -295,10 +295,8 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
 	logLevelArg        = "L"
 	noLogTimestampsArg = "T"
 	helpArg            = "h"
-	forwardArg         = "f"
+	childArg           = "c"
 	udpTimeoutArg      = "udp-timeout"
-
-	helpArgv = "'" + appName + " " + helpCmd + "'"
 
 	defConfigFileName = appName + ".conf"
 
@@ -568,6 +566,11 @@ func up() error {
 		false,
 		"Display this information")
 
+	child := flagSet.Bool(
+		childArg,
+		false,
+		"Indicate that process is running as a child of another process")
+
 	flagSet.DurationVar(
 		&udpTimeout,
 		udpTimeoutArg,
@@ -763,6 +766,10 @@ func up() error {
 	waitGroup, err := startForwarders(ctx, tnet, appCfg.Forwarders)
 	if err != nil {
 		return fmt.Errorf("failed to start network forwarders - %w", err)
+	}
+
+	if *child {
+		os.Stdout.WriteString("ready\n")
 	}
 
 	select {
