@@ -615,22 +615,6 @@ func up() error {
 		log.SetFlags(log.LstdFlags)
 	}
 
-	switch *logLevelString {
-	case "debug":
-		ldebug = true
-		loggerDebug = log.New(log.Writer(), "[debug] ", log.Flags()|log.Lmsgprefix)
-		fallthrough
-	case "info":
-		linfo = true
-		loggerInfo = log.New(log.Writer(), "[info] ", log.Flags()|log.Lmsgprefix)
-		fallthrough
-	case "error":
-		lerr = true
-		loggerErr = log.New(log.Writer(), "[error] ", log.Flags()|log.Lmsgprefix)
-	default:
-		return fmt.Errorf("unknown log level: %q", *logLevelString)
-	}
-
 	configPath := flagSet.Arg(0)
 
 	var configFD *os.File
@@ -670,6 +654,36 @@ func up() error {
 	appCfg, err := ParseConfig(cfg.Others)
 	if err != nil {
 		return fmt.Errorf("failed to parse app config - %w", err)
+	}
+
+	if appCfg.OptLogLevel != "" {
+		cliLogLevelSet := false
+
+		flagSet.Visit(func(f *flag.Flag) {
+			if f.Name == logLevelArg {
+				cliLogLevelSet = true
+			}
+		})
+
+		if !cliLogLevelSet {
+			*logLevelString = appCfg.OptLogLevel
+		}
+	}
+
+	switch *logLevelString {
+	case "debug":
+		ldebug = true
+		loggerDebug = log.New(log.Writer(), "[debug] ", log.Flags()|log.Lmsgprefix)
+		fallthrough
+	case "info":
+		linfo = true
+		loggerInfo = log.New(log.Writer(), "[info] ", log.Flags()|log.Lmsgprefix)
+		fallthrough
+	case "error":
+		lerr = true
+		loggerErr = log.New(log.Writer(), "[error] ", log.Flags()|log.Lmsgprefix)
+	default:
+		return fmt.Errorf("unknown log level: %q", *logLevelString)
 	}
 
 	if appCfg.IsAutoAddrPlanningMode {
@@ -804,6 +818,7 @@ func ParseConfig(sections []*ini.Section) (*Config, error) {
 
 type Config struct {
 	IsAutoAddrPlanningMode bool
+	OptLogLevel            string
 	Forwarders             map[string]*ForwarderSpec
 }
 
@@ -817,6 +832,11 @@ func (o *Config) parseOptions(options *ini.Section) error {
 		}
 
 		o.IsAutoAddrPlanningMode = enabled
+	}
+
+	logLevel, _ := options.FirstParam("LogLevel")
+	if logLevel != nil {
+		o.OptLogLevel = logLevel.Value
 	}
 
 	return nil

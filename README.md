@@ -90,6 +90,8 @@ The following general application parameters are available:
   specify the 'Address' configuration parameter for other peers in this
   mode. Refer to the [automatic address planning mode example][x-aapm]
   for an example.
+- `LogLevel` - Set the log level according to the values that can be
+  specified on the command line. Can be: `error`, `info`, or `debug`
 
 [x-aapm]: #automatic-address-planning-mode-example
 
