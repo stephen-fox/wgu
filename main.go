@@ -823,7 +823,7 @@ type Config struct {
 }
 
 func (o *Config) parseOptions(options *ini.Section) error {
-	autoAddrPlanning, _ := options.FirstParam("AutomaticAddressPlanningMode")
+	autoAddrPlanning, _ := options.FirstParam(autoAddrPlanningModeConfigOpt)
 	if autoAddrPlanning != nil {
 		enabled, err := strconv.ParseBool(autoAddrPlanning.Value)
 		if err != nil {
