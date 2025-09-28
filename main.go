@@ -110,6 +110,8 @@ CONFIGURATION
       specify the 'Address' configuration parameter for other peers in this
       mode. Refer to the AUTOMATIC ADDRESS PLANNING MODE EXAMPLE section for
       an example.
+    - ` + logLevelConfigOpt + ` - Set the log level according to the values that can be
+      specified on the command line. Can be: 'error', 'info', or 'debug'
 
 FORWARDER CONFIGURATION
   Port forwards are defined in a Forwarder configuration section using
@@ -302,6 +304,7 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
 
 	appOptionsConfigSection       = appName
 	autoAddrPlanningModeConfigOpt = "AutomaticAddressPlanningMode"
+	logLevelConfigOpt             = "LogLevel"
 
 	forwarderConfigSection = "Forwarder"
 )
@@ -834,7 +837,7 @@ func (o *Config) parseOptions(options *ini.Section) error {
 		o.IsAutoAddrPlanningMode = enabled
 	}
 
-	logLevel, _ := options.FirstParam("LogLevel")
+	logLevel, _ := options.FirstParam(logLevelConfigOpt)
 	if logLevel != nil {
 		o.OptLogLevel = logLevel.Value
 	}
