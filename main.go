@@ -18,13 +18,11 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
 
-	"gitlab.com/stephen-fox/wgu/internal/ini"
+	"gitlab.com/stephen-fox/wgu/config"
 	"gitlab.com/stephen-fox/wgu/internal/wgconfig"
 	"gitlab.com/stephen-fox/wgu/internal/wgdns"
 	"gitlab.com/stephen-fox/wgu/internal/wgkeys"
@@ -86,7 +84,7 @@ CONFIGURATION
   containing an example configuration file and a private key file.
   The private key's corresponding public key is written to standard output:
 
-    $ wgu genconf
+    $ wgu ` + genconfigCmd + `
     z9yJgu9cvwbygPzuUtzcmkuB2K2nxA6viKj1kUDj4Ug=
 
   ` + appName + ` is configured using an INI configuration file in a similar manner
@@ -94,14 +92,14 @@ CONFIGURATION
   arguments.
 
   General application settings can be specified in the configuration file
-  in the ` + appOptionsConfigSection + ` section. For example:
+  in the ` + config.AppOptionsConfigSection + ` section. For example:
 
-    [` + appOptionsConfigSection + `]
+    [` + config.AppOptionsConfigSection + `]
     ExampleParameter = some value
 
   The following general application parameters are available:
 
-    - ` + autoAddrPlanningModeConfigOpt + ` - Enables automatic address planning mode
+    - ` + config.AutoAddrPlanningModeConfigOpt + ` - Enables automatic address planning mode
       if set to "true". Defaults to "false" if unspecified. In this mode,
       each peer's virtual WireGuard address is generated from its public key
       in the form of an IPv6 address. This mode makes it easier to construct
@@ -110,7 +108,7 @@ CONFIGURATION
       specify the 'Address' configuration parameter for other peers in this
       mode. Refer to the AUTOMATIC ADDRESS PLANNING MODE EXAMPLE section for
       an example.
-    - ` + logLevelConfigOpt + ` - Set the log level according to the values that can be
+    - ` + config.LogLevelConfigOpt + ` - Set the log level according to the values that can be
       specified on the command line. Can be: 'error', 'info', or 'debug'
 
 FORWARDER CONFIGURATION
@@ -240,8 +238,8 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
 
   Edit peer0's config file, and make it look similar to the following:
 
-    [` + appOptionsConfigSection + `]
-    ` + autoAddrPlanningModeConfigOpt + ` = true
+    [` + config.AppOptionsConfigSection + `]
+    ` + config.AutoAddrPlanningModeConfigOpt + ` = true
 
     [Interface]
     PrivateKey = # (...)
@@ -258,8 +256,8 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
 
   Modify peer1's config file to look like the following:
 
-    [` + appOptionsConfigSection + `]
-    ` + autoAddrPlanningModeConfigOpt + ` = true
+    [` + config.AppOptionsConfigSection + `]
+    ` + config.AutoAddrPlanningModeConfigOpt + ` = true
 
     [Interface]
     PrivateKey = # (...)
@@ -301,10 +299,6 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
 	udpTimeoutArg      = "udp-timeout"
 
 	defConfigFileName = appName + ".conf"
-
-	appOptionsConfigSection       = appName
-	autoAddrPlanningModeConfigOpt = "AutomaticAddressPlanningMode"
-	logLevelConfigOpt             = "LogLevel"
 
 	forwarderConfigSection = "Forwarder"
 )
@@ -435,7 +429,7 @@ func mainWithError() error {
 			return err
 		}
 
-		addr, err := publicKeyToV6Addr(publicKey[:])
+		addr, err := config.PublicKeyToV6Addr(publicKey[:])
 		if err != nil {
 			return err
 		}
@@ -498,8 +492,8 @@ func genConfig() error {
 			privateKeyFilePath)
 	}
 
-	err = os.WriteFile(configFilePath, []byte(`[`+appOptionsConfigSection+`]
-# `+autoAddrPlanningModeConfigOpt+` = true
+	err = os.WriteFile(configFilePath, []byte(`[`+config.AppOptionsConfigSection+`]
+# `+config.AutoAddrPlanningModeConfigOpt+` = true
 
 [Interface]
 PrivateKey = file://`+privateKeyPathInConfig+`
@@ -642,21 +636,10 @@ func up() error {
 		}
 	}
 
-	cfg, err := wgconfig.Parse(configFD)
+	appCfg, err := config.Parse(configFD)
 	_ = configFD.Close()
 	if err != nil {
 		return fmt.Errorf("failed to parse config file - %w", err)
-	}
-
-	if cfg.Interface.MTU == nil {
-		// TODO: Add flag.
-		i := 1420
-		cfg.Interface.MTU = &i
-	}
-
-	appCfg, err := ParseConfig(cfg.Others)
-	if err != nil {
-		return fmt.Errorf("failed to parse app config - %w", err)
 	}
 
 	if appCfg.OptLogLevel != "" {
@@ -691,20 +674,15 @@ func up() error {
 
 	if appCfg.IsAutoAddrPlanningMode {
 		loggerInfo.Println("automatic address planning mode is enabled")
-
-		err = doAutoAddrPlanning(cfg)
-		if err != nil {
-			return fmt.Errorf("failed to do automatic address planning - %w", err)
-		}
 	}
 
 	if *writeConfig {
-		_, err = os.Stdout.WriteString(cfg.WireGuardString())
+		_, err = os.Stdout.WriteString(appCfg.Wireguard.WireGuardString())
 		return err
 	}
 
 	if *writeIpcConfig {
-		str, err := cfg.IPCConfig()
+		str, err := appCfg.Wireguard.IPCConfig()
 		if err != nil {
 			return fmt.Errorf("failed to convert config to ipc format - %w", err)
 		}
@@ -713,47 +691,19 @@ func up() error {
 		return err
 	}
 
-	if cfg.Interface.Address == nil {
-		return fmt.Errorf("failed to get our internal wg address from config")
-	}
-
-	ourWgAddrStr := cfg.Interface.Address.Addr().String()
-
-	for str, forward := range appCfg.Forwarders {
-		err = replaceWgAddrShortcuts(replaceWgAddrShortcutsArgs{
-			host:      &forward.ListenAddr,
-			ourWgAddr: ourWgAddrStr,
-			wgConfig:  cfg,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to replace listen addr for %q - %w",
-				str, err)
-		}
-
-		err = replaceWgAddrShortcuts(replaceWgAddrShortcutsArgs{
-			host:      &forward.DialAddr,
-			ourWgAddr: ourWgAddrStr,
-			wgConfig:  cfg,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to replace dial addr for %q - %w",
-				str, err)
-		}
-	}
-
 	ctx, cancelFn := signal.NotifyContext(context.Background(),
 		syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT)
 	defer cancelFn()
 
-	ipcConfig, err := cfg.IPCConfigWithoutDnsPeers()
+	ipcConfig, err := appCfg.Wireguard.IPCConfigWithoutDnsPeers()
 	if err != nil {
 		return fmt.Errorf("failed to convert config to wg ipc format - %w", err)
 	}
 
 	tun, tnet, err := netstack.CreateNetTUN(
-		[]netip.Addr{cfg.Interface.Address.Addr()},
+		[]netip.Addr{appCfg.Wireguard.Interface.Address.Addr()},
 		[]netip.Addr{},
-		*cfg.Interface.MTU,
+		*appCfg.Wireguard.Interface.MTU,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create wg tunnel interface: %w", err)
@@ -778,7 +728,7 @@ func up() error {
 	loggerInfo.Println("wg device up")
 
 	dnsMonitorErrs := make(chan error, 1)
-	wgdns.MonitorPeers(ctx, cfg.Peers, dev, dnsMonitorErrs, loggerInfo)
+	wgdns.MonitorPeers(ctx, appCfg.Wireguard.Peers, dev, dnsMonitorErrs, loggerInfo)
 
 	waitGroup, err := startForwarders(ctx, tnet, appCfg.Forwarders)
 	if err != nil {
@@ -796,113 +746,6 @@ func up() error {
 	case err = <-dnsMonitorErrs:
 		return fmt.Errorf("failed to monitor peer's dns changes - %w", err)
 	}
-}
-
-func ParseConfig(sections []*ini.Section) (*Config, error) {
-	config := &Config{}
-
-	for _, section := range sections {
-		switch section.Name {
-		case appOptionsConfigSection:
-			err := config.parseOptions(section)
-			if err != nil {
-				return nil, err
-			}
-		case forwarderConfigSection:
-			err := config.parseForwarder(section)
-			if err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	return config, nil
-}
-
-type Config struct {
-	IsAutoAddrPlanningMode bool
-	OptLogLevel            string
-	Forwarders             map[string]*ForwarderSpec
-}
-
-func (o *Config) parseOptions(options *ini.Section) error {
-	autoAddrPlanning, _ := options.FirstParam(autoAddrPlanningModeConfigOpt)
-	if autoAddrPlanning != nil {
-		enabled, err := strconv.ParseBool(autoAddrPlanning.Value)
-		if err != nil {
-			return fmt.Errorf("failed to parse automatic address planning mode value: %q - %w",
-				autoAddrPlanning.Value, err)
-		}
-
-		o.IsAutoAddrPlanningMode = enabled
-	}
-
-	logLevel, _ := options.FirstParam(logLevelConfigOpt)
-	if logLevel != nil {
-		o.OptLogLevel = logLevel.Value
-	}
-
-	return nil
-}
-
-func (o *Config) parseForwarder(fwd *ini.Section) error {
-	name, err := fwd.FirstParam("Name")
-	if err != nil {
-		return err
-	}
-
-	listen, err := fwd.FirstParam("Listen")
-	if err != nil {
-		return fmt.Errorf("forwarder %q: %w", name.Value, err)
-	}
-
-	dial, err := fwd.FirstParam("Dial")
-	if err != nil {
-		return fmt.Errorf("forwarder %q: %w", name.Value, err)
-	}
-
-	lNetwork, lAddr, err := parseTransitSpec(listen.Value)
-	if err != nil {
-		return fmt.Errorf("failed to parse listen transit spec for %q - %w",
-			name.Value, err)
-	}
-
-	dNetwork, dAddr, err := parseTransitSpec(dial.Value)
-	if err != nil {
-		return fmt.Errorf("failed to parse dial transit spec for %q - %w",
-			name.Value, err)
-	}
-
-	_, alreadyHasIt := o.Forwarders[name.Value]
-	if alreadyHasIt {
-		return fmt.Errorf("forward config already specified: %q", name)
-	}
-
-	var dialTimeout time.Duration
-
-	dialTimeoutStr, _ := fwd.FirstParam("DialTimeout")
-	if dialTimeoutStr != nil {
-		dialTimeout, err = time.ParseDuration(dialTimeoutStr.Value)
-		if err != nil {
-			return fmt.Errorf("failed to parse dial timeout: %q - %w",
-				dialTimeoutStr.Value, err)
-		}
-	}
-
-	if o.Forwarders == nil {
-		o.Forwarders = make(map[string]*ForwarderSpec)
-	}
-
-	o.Forwarders[name.Value] = &ForwarderSpec{
-		Name:           name.Value,
-		ListenNet:      lNetwork,
-		ListenAddr:     lAddr,
-		DialNet:        dNetwork,
-		DialAddr:       dAddr,
-		OptDialTimeout: dialTimeout,
-	}
-
-	return nil
 }
 
 type netOp interface {
@@ -952,7 +795,7 @@ func (n *tunnelNetOp) ListenPacket(ctx context.Context, network string, address 
 	return n.tun.ListenUDP(addr)
 }
 
-func startForwarders(ctx context.Context, tnet *netstack.Net, forwards map[string]*ForwarderSpec) (*sync.WaitGroup, error) {
+func startForwarders(ctx context.Context, tnet *netstack.Net, forwards map[string]*config.ForwarderSpec) (*sync.WaitGroup, error) {
 	waitGroup := &sync.WaitGroup{}
 	var localNetOp = &localNetOp{}
 	var tunnelNetOp = &tunnelNetOp{tnet}
@@ -960,9 +803,9 @@ func startForwarders(ctx context.Context, tnet *netstack.Net, forwards map[strin
 	for fwdStr, fwd := range forwards {
 		var listenNet netOp
 		switch fwd.ListenNet {
-		case HostNetStackT:
+		case config.HostNetStackT:
 			listenNet = localNetOp
-		case TunNetStackT:
+		case config.TunNetStackT:
 			listenNet = tunnelNetOp
 		default:
 			return nil, fmt.Errorf("unsupported listen net stack: %q", fwd.ListenNet)
@@ -970,9 +813,9 @@ func startForwarders(ctx context.Context, tnet *netstack.Net, forwards map[strin
 
 		var dialNet netOp
 		switch fwd.DialNet {
-		case HostNetStackT:
+		case config.HostNetStackT:
 			dialNet = localNetOp
-		case TunNetStackT:
+		case config.TunNetStackT:
 			dialNet = tunnelNetOp
 		default:
 			return nil, fmt.Errorf("unsupported dial net stack: %q", fwd.DialNet)
@@ -999,7 +842,7 @@ func startForwarders(ctx context.Context, tnet *netstack.Net, forwards map[strin
 	return waitGroup, nil
 }
 
-func forwardStream(ctx context.Context, waitg *sync.WaitGroup, spec *ForwarderSpec, lNet netOp, dNet netOp) error {
+func forwardStream(ctx context.Context, waitg *sync.WaitGroup, spec *config.ForwarderSpec, lNet netOp, dNet netOp) error {
 	listener, err := lNet.Listen(ctx, string(spec.ListenAddr.Protocol()), spec.ListenAddr.String())
 	if err != nil {
 		return err
@@ -1044,7 +887,7 @@ func forwardStream(ctx context.Context, waitg *sync.WaitGroup, spec *ForwarderSp
 	return nil
 }
 
-func dialAndCopyStream(ctx context.Context, src net.Conn, dNet netOp, spec *ForwarderSpec) {
+func dialAndCopyStream(ctx context.Context, src net.Conn, dNet netOp, spec *config.ForwarderSpec) {
 	defer src.Close()
 
 	var dst net.Conn
@@ -1113,7 +956,7 @@ func dialAndCopyStream(ctx context.Context, src net.Conn, dNet netOp, spec *Forw
 	}
 }
 
-func forwardDatagram(ctx context.Context, waitg *sync.WaitGroup, spec *ForwarderSpec, lNet netOp, dNet netOp) error {
+func forwardDatagram(ctx context.Context, waitg *sync.WaitGroup, spec *config.ForwarderSpec, lNet netOp, dNet netOp) error {
 	localConn, err := lNet.ListenPacket(ctx, string(spec.ListenAddr.Protocol()), spec.ListenAddr.String())
 	if err != nil {
 		return err
@@ -1212,7 +1055,7 @@ type dialAndCopyDatagramArgs struct {
 	srcAddr     net.Addr
 	srcAddrStr  string
 	dNet        netOp
-	dProto      ProtocolT
+	dProto      config.ProtocolT
 	dAddrStr    string
 	bufSizeByte int
 	remoteConns *connMap
@@ -1363,240 +1206,4 @@ func (o *retryDialer) dial(ctx context.Context, network string, addr string, tim
 			scale = scale + 3
 		}
 	}
-}
-
-func strToAddr(proto ProtocolT, str string) (Addr, error) {
-	if strings.HasPrefix(string(proto), "unix") {
-		return Addr{
-			proto: proto,
-			addr:  str,
-		}, nil
-	}
-
-	host, portStr, err := net.SplitHostPort(str)
-	if err != nil {
-		return Addr{}, err
-	}
-
-	port, err := strToPort(portStr)
-	if err != nil {
-		return Addr{}, err
-	}
-
-	return Addr{
-		proto: proto,
-		addr:  host,
-		port:  port,
-	}, nil
-}
-
-func strToPort(portStr string) (uint16, error) {
-	port, err := strconv.ParseUint(portStr, 10, 16)
-	if err != nil {
-		return 0, err
-	}
-
-	return uint16(port), nil
-}
-
-type Addr struct {
-	proto ProtocolT
-	addr  string
-	port  uint16
-}
-
-func (o *Addr) SetHost(newHost string) {
-	o.addr = newHost
-}
-
-func (o Addr) Protocol() ProtocolT {
-	return o.proto
-}
-
-func (o Addr) Host() string {
-	return o.addr
-}
-
-func (o Addr) Port() uint16 {
-	return o.port
-}
-
-func (o Addr) String() string {
-	if o.port == 0 {
-		return o.addr
-	}
-
-	return net.JoinHostPort(o.addr, strconv.Itoa(int(o.port)))
-}
-
-func parseTransitSpec(str string) (NetStackT, Addr, error) {
-	fields := strings.Fields(strings.TrimSpace(str))
-
-	if len(fields) != 3 {
-		return UnknownNetStackT, Addr{}, errors.New("format should be: <net-stack> <protocol> <address>")
-	}
-
-	var netT NetStackT
-	switch fields[0] {
-	case "host", "tun":
-		netT = NetStackT(fields[0])
-	default:
-		return UnknownNetStackT, Addr{}, fmt.Errorf("unknown network stack: %q", fields[0])
-	}
-
-	proto := ProtocolT(fields[1])
-	addrStr := fields[2]
-
-	addr, err := strToAddr(proto, addrStr)
-	if err != nil {
-		return UnknownNetStackT, Addr{}, fmt.Errorf("failed to parse address %q - %w",
-			addrStr, err)
-	}
-
-	return netT, addr, nil
-}
-
-type ForwarderSpec struct {
-	Name           string
-	ListenNet      NetStackT
-	ListenAddr     Addr
-	DialNet        NetStackT
-	DialAddr       Addr
-	OptDialTimeout time.Duration
-}
-
-func (o ForwarderSpec) String() string {
-	return string(o.ListenNet) + " " +
-		string(o.ListenAddr.Protocol()) + " " +
-		o.ListenAddr.String() + " " +
-		"-> " +
-		string(o.DialNet) + " " +
-		string(o.DialAddr.Protocol()) + " " +
-		o.DialAddr.String()
-}
-
-type NetStackT string
-
-const (
-	UnknownNetStackT NetStackT = ""
-	HostNetStackT    NetStackT = "host"
-	TunNetStackT     NetStackT = "tun"
-)
-
-type ProtocolT string
-
-func (proto ProtocolT) IsStream() bool {
-	switch {
-	case strings.HasPrefix(string(proto), "tcp"):
-		return true
-	case proto == "unix":
-		return true
-	default:
-		return false
-	}
-}
-
-func (proto ProtocolT) IsDatagram() bool {
-	switch {
-	case strings.HasPrefix(string(proto), "udp"):
-		return true
-	case proto == "unixgram":
-		return true
-	default:
-		return false
-	}
-}
-
-func doAutoAddrPlanning(cfg *wgconfig.Config) error {
-	ourIntAddr, err := publicKeyToV6Addr(cfg.Interface.PublicKey[:])
-	if err != nil {
-		return fmt.Errorf("failed to convert our public key to v6 addr: %q - %w",
-			base64.StdEncoding.EncodeToString(cfg.Interface.PublicKey[:]), err)
-	}
-
-	ourAddr := netip.PrefixFrom(ourIntAddr, 128)
-	cfg.Interface.Address = &ourAddr
-
-	var peers []autoPeer
-
-	for _, peer := range cfg.Peers {
-		peerAddr, err := publicKeyToV6Addr(peer.PublicKey[:])
-		if err != nil {
-			return fmt.Errorf("failed to convert peer public key to v6 addr: %q - %w",
-				base64.StdEncoding.EncodeToString(peer.PublicKey[:]), err)
-		}
-
-		peer.AllowedIPs = append(peer.AllowedIPs, netip.PrefixFrom(peerAddr, 128))
-
-		peers = append(peers, autoPeer{
-			publicKey: peer.PublicKey[:],
-			addr:      peerAddr,
-		})
-	}
-
-	return nil
-}
-
-type autoPeer struct {
-	publicKey []byte
-	addr      netip.Addr
-}
-
-type replaceWgAddrShortcutsArgs struct {
-	host      *Addr
-	ourWgAddr string
-	wgConfig  *wgconfig.Config
-}
-
-func replaceWgAddrShortcuts(args replaceWgAddrShortcutsArgs) error {
-	if args.host.Host() == "@us" {
-		args.host.SetHost(args.ourWgAddr)
-		return nil
-	}
-
-	if strings.HasPrefix(args.host.Host(), "@") {
-		name := args.host.Host()
-		name = name[1:]
-
-		actualPeer, hasIt := args.wgConfig.NamedPeer[name]
-		if !hasIt {
-			return fmt.Errorf("unknown peer nickname: %q", name)
-		}
-
-		addr, err := singleAddrPrefix(actualPeer.AllowedIPs)
-		if err != nil {
-			return fmt.Errorf("failed to get address for peer with nickname %q - %w",
-				name,
-				err)
-		}
-
-		args.host.SetHost(addr.String())
-
-		return nil
-	}
-
-	return nil
-}
-
-func singleAddrPrefix(prefixes []netip.Prefix) (netip.Addr, error) {
-	if len(prefixes) == 0 {
-		return netip.Addr{}, errors.New("no AllowedIPs were specified")
-	}
-
-	for _, prefix := range prefixes {
-		if prefix.Bits() == 128 || prefix.Bits() == 32 {
-			return prefix.Addr(), nil
-		}
-	}
-
-	return netip.Addr{}, errors.New("AllowedIPs missing single address entry")
-}
-
-func publicKeyToV6Addr(pub []byte) (netip.Addr, error) {
-	addr, ok := netip.AddrFromSlice(pub[len(pub)-16:])
-	if !ok {
-		return netip.Addr{}, errors.New("netip.AddrFromSlice returned false")
-	}
-
-	return addr, nil
 }
