@@ -478,18 +478,10 @@ func genConfig() error {
 
 	configFilePath := filepath.Join(configDirPath, defConfigFileName)
 
-	_, statErr := os.Stat(configFilePath)
-	if statErr == nil {
+	_, configStatErr := os.Stat(configFilePath)
+	if configStatErr == nil {
 		return fmt.Errorf("a configuration file already exists at: '%s'",
 			configFilePath)
-	}
-
-	privateKeyFilePath := filepath.Join(configDirPath, privateKeyFileName)
-
-	_, statErr = os.Stat(privateKeyFilePath)
-	if statErr == nil {
-		return fmt.Errorf("a private key file already exists at: '%s'",
-			privateKeyFilePath)
 	}
 
 	err = os.WriteFile(configFilePath, []byte(`[`+config.AppOptionsConfigSection+`]
@@ -526,22 +518,30 @@ PrivateKey = file://`+privateKeyPathInConfig+`
 # AllowedIPs = 192.168.0.2/32
 `), 0o600)
 
-	privateKey, err := wgkeys.NewNoisePrivateKey()
-	if err != nil {
-		return fmt.Errorf("failed to generate private key - %w", err)
+	privateKeyFilePath := filepath.Join(configDirPath, privateKeyFileName)
+
+	_, statPrivateKeyErr := os.Stat(privateKeyFilePath)
+
+	var privateKey *device.NoisePrivateKey
+
+	if statPrivateKeyErr == nil {
+		privateKey, err = wgkeys.NoisePrivateKeyFromFilePath(privateKeyFilePath)
+		if err != nil {
+			return fmt.Errorf("failed to parse existing private key - %w", err)
+		}
+	} else {
+		privateKey, err = wgkeys.NewNoisePrivateKey()
+		if err != nil {
+			return fmt.Errorf("failed to generate private key - %w", err)
+		}
+
+		err = wgkeys.WriteNoisePrivateKeyToFile(privateKey, privateKeyFilePath)
+		if err != nil {
+			return fmt.Errorf("failed to write new private key file - %w", err)
+		}
 	}
 
-	err = os.WriteFile(
-		privateKeyFilePath,
-		[]byte(base64.StdEncoding.EncodeToString(privateKey[:])+"\n"),
-		0o600,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to write private key file - %w", err)
-	}
-
-	os.Stdout.WriteString(base64.StdEncoding.EncodeToString(
-		wgkeys.NoisePublicKeyFromPrivate(privateKey)[:]) + "\n")
+	os.Stdout.WriteString(wgkeys.NoisePrivateKeyToPublicDisplayString(privateKey) + "\n")
 
 	return nil
 }
