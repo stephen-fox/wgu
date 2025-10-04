@@ -31,10 +31,13 @@ import (
 )
 
 const (
+	version = "v0.0.7"
+
 	appName = "wgu"
 
 	usage = `SYNOPSIS
   ` + appName + ` ` + helpCmd + `
+  ` + appName + ` ` + versionCmd + `
   ` + appName + ` ` + genconfigCmd + ` [dir]
   ` + appName + ` ` + pubkeyCmd + ` < private-key-file
   ` + appName + ` ` + pubkeyFromConfigCmd + ` [config-file] [< config-file]
@@ -60,6 +63,7 @@ OPTIONS
 	helpLong = `COMMANDS
 
   ` + helpCmd + `             - Display configuration syntax help and examples
+  ` + versionCmd + `          - Display version number and exit
   ` + genconfigCmd + ` [dir]    - Generate an example configuration file and private key.
                      The config and private key files are written to ~/.wgu
                      by default. This can be overriden by specifying a path
@@ -284,6 +288,7 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
 `
 
 	helpCmd             = "help"
+	versionCmd          = "version"
 	genconfigCmd        = "genconf"
 	genkeyCmd           = "genkey"
 	pubkeyCmd           = "pubkey"
@@ -349,6 +354,8 @@ func mainWithError() error {
 	switch command {
 	case helpCmd:
 		os.Stdout.WriteString(helpLong)
+	case versionCmd:
+		os.Stdout.WriteString(version + "\n")
 	case genconfigCmd:
 		return genConfig()
 	case genkeyCmd:
