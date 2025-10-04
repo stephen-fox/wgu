@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +10,7 @@ import (
 
 	"gitlab.com/stephen-fox/wgu/internal/ini"
 	"gitlab.com/stephen-fox/wgu/internal/wgconfig"
+	"gitlab.com/stephen-fox/wgu/internal/wgkeys"
 )
 
 // App-level config stuff.
@@ -144,7 +144,7 @@ func doAutoAddrPlanning(cfg *wgconfig.Config) error {
 	ourIntAddr, err := PublicKeyToV6Addr(cfg.Interface.PublicKey[:])
 	if err != nil {
 		return fmt.Errorf("failed to convert our public key to v6 addr: %q - %w",
-			base64.StdEncoding.EncodeToString(cfg.Interface.PublicKey[:]), err)
+			wgkeys.NoisePublicKeyToString(cfg.Interface.PublicKey), err)
 	}
 
 	ourAddr := netip.PrefixFrom(ourIntAddr, 128)
@@ -154,7 +154,7 @@ func doAutoAddrPlanning(cfg *wgconfig.Config) error {
 		peerAddr, err := PublicKeyToV6Addr(peer.PublicKey[:])
 		if err != nil {
 			return fmt.Errorf("failed to convert peer public key to v6 addr: %q - %w",
-				base64.StdEncoding.EncodeToString(peer.PublicKey[:]), err)
+				wgkeys.NoisePublicKeyToString(cfg.Interface.PublicKey), err)
 		}
 
 		peer.AllowedIPs = append(peer.AllowedIPs, netip.PrefixFrom(peerAddr, 128))

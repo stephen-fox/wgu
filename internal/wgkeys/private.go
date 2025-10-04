@@ -57,6 +57,10 @@ func WriteNoisePrivateKeyToFile(private *device.NoisePrivateKey, privateKeyFile 
 		0o600)
 }
 
+func NoisePrivateKeyToDisplayString(private *device.NoisePrivateKey) string {
+	return NoisePrivateKeyToString(private)
+}
+
 func NoisePrivateKeyToString(private *device.NoisePrivateKey) string {
 	return base64.StdEncoding.EncodeToString(private[:])
 }

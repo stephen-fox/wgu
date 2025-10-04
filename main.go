@@ -7,7 +7,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
@@ -358,7 +357,7 @@ func mainWithError() error {
 			return fmt.Errorf("failed to generate private key - %w", err)
 		}
 
-		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(privateKey[:]) + "\n")
+		os.Stdout.WriteString(wgkeys.NoisePrivateKeyToDisplayString(privateKey) + "\n")
 	case pubkeyCmd:
 		privateKeyB64, err := io.ReadAll(os.Stdin)
 		if err != nil {
@@ -370,9 +369,7 @@ func mainWithError() error {
 			return fmt.Errorf("failed to parse private key - %w", err)
 		}
 
-		pub := wgkeys.NoisePublicKeyFromPrivate(privateKey)
-
-		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(pub[:]) + "\n")
+		os.Stdout.WriteString(wgkeys.NoisePrivateKeyToPublicDisplayString(privateKey) + "\n")
 	case pubkeyFromConfigCmd:
 		srcArg := flagSet.Arg(1)
 
@@ -414,15 +411,15 @@ func mainWithError() error {
 			return err
 		}
 
-		os.Stdout.WriteString(base64.StdEncoding.EncodeToString(
-			cfg.Interface.PublicKey[:]) + "\n")
+		os.Stdout.WriteString(wgkeys.NoisePublicKeyToDisplayString(
+			cfg.Interface.PublicKey) + "\n")
 	case pubkeyAddrCmd:
-		publicKeyRaw, err := io.ReadAll(base64.NewDecoder(base64.StdEncoding, os.Stdin))
+		publicKeyRaw, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return err
 		}
 
-		publicKey, err := wgkeys.NoisePublicKeyFromBytes(publicKeyRaw)
+		publicKey, err := wgkeys.NoisePublicKeyFromBase64Bytes(publicKeyRaw)
 		if err != nil {
 			return err
 		}

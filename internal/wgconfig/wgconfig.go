@@ -2,7 +2,6 @@ package wgconfig
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -257,7 +256,7 @@ func (o *Interface) Validate() error {
 func (o *Interface) string(b *bytes.Buffer) {
 	b.WriteString("[Interface]\n")
 	b.WriteString("PrivateKey = ")
-	b.WriteString(base64.StdEncoding.EncodeToString(o.PrivateKey[:]))
+	b.WriteString(wgkeys.NoisePrivateKeyToString(o.PrivateKey))
 	b.WriteString("\n")
 
 	if o.ListenPort != nil {
@@ -392,7 +391,7 @@ func (o *Peer) Validate() error {
 func (o *Peer) string(b *bytes.Buffer) {
 	b.WriteString("[Peer]\n")
 	b.WriteString("PublicKey = ")
-	b.WriteString(base64.StdEncoding.EncodeToString(o.PublicKey[:]))
+	b.WriteString(wgkeys.NoisePublicKeyToString(o.PublicKey))
 	b.WriteString("\n")
 
 	if o.Endpoint != nil {
