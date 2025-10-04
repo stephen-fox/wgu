@@ -299,8 +299,6 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
 	udpTimeoutArg      = "udp-timeout"
 
 	defConfigFileName = appName + ".conf"
-
-	forwarderConfigSection = "Forwarder"
 )
 
 var (
