@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -219,8 +220,8 @@ HELLO WORLD EXAMPLE
   To create the tunnel, execute the following commands in two
   different shells:
 
-    $ wgu ` + upCmd + ` peer0/wgu.conf
-    $ wgu ` + upCmd + ` peer1/wgu.conf
+    $ wgu ` + upCmd + ` peer0/` + defConfigFileName + `
+    $ wgu ` + upCmd + ` peer1/` + defConfigFileName + `
 
   Finally, in two different shells, test the tunnel using nc:
 
@@ -278,8 +279,8 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
   To create the tunnel *and* enable automatic address planning,
   execute the following commands in two different shells:
 
-    $ wgu ` + upCmd + ` peer0/wgu.conf
-    $ wgu ` + upCmd + ` peer1/wgu.conf
+    $ wgu ` + upCmd + ` peer0/` + defConfigFileName + `
+    $ wgu ` + upCmd + ` peer1/` + defConfigFileName + `
 
   Finally, in two different shells, test the tunnel using nc:
 
@@ -400,7 +401,7 @@ func mainWithError() error {
 
 			src, err = os.Open(configPath)
 			if err != nil {
-				return fmt.Errorf("failed to open config file '%s' - %w",
+				return fmt.Errorf("failed to open default config file '%s' - %w",
 					configPath, err)
 			}
 		default:
@@ -447,25 +448,55 @@ func mainWithError() error {
 }
 
 func genConfig() error {
+	flagSet := flag.NewFlagSet(genconfigCmd, flag.ExitOnError)
+
+	help := flagSet.Bool(
+		helpArg,
+		false,
+		"Display this information")
+
+	configFileName := flagSet.String(
+		"n",
+		defConfigFileName,
+		"The config file name to use")
+
+	// Disable annoying flag.PrintDefaults on flag parse error.
+	flagSet.Usage = func() {}
+
+	flagSet.Parse(os.Args[2:])
+
+	if *help {
+		flagSet.PrintDefaults()
+		os.Exit(1)
+	}
+
+	if strings.ContainsAny(*configFileName, "\\/") {
+		return fmt.Errorf("the specified config file name contains one or more path separators: '%s'",
+			*configFileName)
+	}
+
 	var configDirPath string
 	var privateKeyPathInConfig string
 	const privateKeyFileName = "private-key"
 	var err error
 
-	if flag.NArg() > 1 {
-		configDirPath, err = filepath.Abs(flag.Arg(1))
-		if err != nil {
-			return err
-		}
-
-		privateKeyPathInConfig = filepath.Join(configDirPath, privateKeyFileName)
-	} else {
+	switch flagSet.NArg() {
+	case 0:
 		configDirPath, err = defConfigDirPath()
 		if err != nil {
 			return err
 		}
 
 		privateKeyPathInConfig = "~/." + appName + "/" + privateKeyFileName
+	case 1:
+		configDirPath, err = filepath.Abs(flagSet.Arg(0))
+		if err != nil {
+			return err
+		}
+
+		privateKeyPathInConfig = filepath.Join(configDirPath, privateKeyFileName)
+	default:
+		return errors.New("please specify only one config file path")
 	}
 
 	err = os.MkdirAll(configDirPath, 0o700)
@@ -478,7 +509,7 @@ func genConfig() error {
 		return err
 	}
 
-	configFilePath := filepath.Join(configDirPath, defConfigFileName)
+	configFilePath := filepath.Join(configDirPath, *configFileName)
 
 	_, configStatErr := os.Stat(configFilePath)
 	if configStatErr == nil {
