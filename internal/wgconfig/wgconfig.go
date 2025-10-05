@@ -41,7 +41,6 @@ func (o *Config) Rules() ini.ParserRules {
 	return ini.ParserRules{
 		RequiredSections: []string{
 			"Interface",
-			"Peer",
 		},
 	}
 }
