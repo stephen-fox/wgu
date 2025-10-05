@@ -174,6 +174,17 @@ $ wgu help
 $ wgu help | less
 ```
 
+#### `version`
+
+Writes the version number to standard output and exits.
+
+Example:
+
+```console
+$ wgu version
+v0.0.8
+```
+
 #### `genconf`
 
 Generates an example configuration file and a private key file in the
