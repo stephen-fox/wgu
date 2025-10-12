@@ -24,9 +24,9 @@ wgu expands on wgfwd's functionality with the following features:
 - Support for resolving peers' external addresses using DNS hostnames
 - Store the private key in a file outside of the configuration file
 - Expand the WireGuard interface's address and peers' addresses using
-  shortcut strings
+  variable strings
 - Specify multiple addresses for the virtual WireGuard network interface
-  using multiple `Address` parameters
+  using more than one `Address` parameters
 
 ## Basic example
 
