@@ -36,10 +36,10 @@ func NoisePublicKeyFromBase64(b64 string) (*device.NoisePublicKey, error) {
 		return nil, err
 	}
 
-	return NoisePublicKeyFromBase64Bytes(b)
+	return NoisePublicKeyFromBytes(b)
 }
 
-func NoisePublicKeyFromBase64Bytes(b []byte) (*device.NoisePublicKey, error) {
+func NoisePublicKeyFromBytes(b []byte) (*device.NoisePublicKey, error) {
 	if len(b) != device.NoisePublicKeySize {
 		return nil, fmt.Errorf("got incorrect number of bytes (%d), expected: %d",
 			len(b), device.NoisePublicKeySize)

@@ -427,7 +427,7 @@ func mainWithError() error {
 			return err
 		}
 
-		publicKey, err := wgkeys.NoisePublicKeyFromBase64Bytes(publicKeyRaw)
+		publicKey, err := wgkeys.NoisePublicKeyFromBase64(string(publicKeyRaw))
 		if err != nil {
 			return err
 		}
