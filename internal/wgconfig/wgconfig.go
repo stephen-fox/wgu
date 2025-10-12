@@ -3,6 +3,7 @@ package wgconfig
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -176,7 +177,7 @@ type Interface struct {
 	PrivateKey *device.NoisePrivateKey
 	PublicKey  *device.NoisePublicKey
 	ListenPort *uint16
-	Address    *netip.Prefix
+	Addresses  []netip.Prefix
 	MTU        *int
 	Others     []*ini.Param
 }
@@ -223,10 +224,10 @@ func (o *Interface) OnParam(paramName string) (func(*ini.Param) error, ini.Schem
 				return err
 			}
 
-			o.Address = &prefix
+			o.Addresses = append(o.Addresses, prefix)
 
 			return nil
-		}, ini.SchemaRule{Limit: 1}
+		}, ini.SchemaRule{}
 	case "MTU":
 		return func(p *ini.Param) error {
 			mtu, err := strconv.Atoi(p.Value)
@@ -252,6 +253,21 @@ func (o *Interface) Validate() error {
 	return nil
 }
 
+func (o *Interface) AddressByIndex(index uint64) (netip.Prefix, error) {
+	if len(o.Addresses) == 0 {
+		return netip.Prefix{}, errors.New("no interface addresses configured")
+	}
+
+	max := uint64(len(o.Addresses) - 1)
+
+	if index > max {
+		return netip.Prefix{}, fmt.Errorf("index is outside of range: 0 to %d",
+			max)
+	}
+
+	return o.Addresses[index], nil
+}
+
 func (o *Interface) string(b *bytes.Buffer) {
 	b.WriteString("[Interface]\n")
 	b.WriteString("PrivateKey = ")
@@ -264,9 +280,9 @@ func (o *Interface) string(b *bytes.Buffer) {
 		b.WriteString("\n")
 	}
 
-	if o.Address != nil {
+	for _, addr := range o.Addresses {
 		b.WriteString("Address = ")
-		b.WriteString(o.Address.String())
+		b.WriteString(addr.String())
 		b.WriteString("\n")
 	}
 

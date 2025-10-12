@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	version = "v0.0.9"
+	version = "v0.0.10"
 
 	appName = "wgu"
 
@@ -161,12 +161,17 @@ FORWARDER CONFIGURATION
     Listen = host unix example.sock
     Dial = tun tcp 10.0.0.1:22
 
-FORWARDER MAGIC STRINGS
-  The "address" values can be replaced with magic strings that are
+FORWARDER VARIABLES
+  The "address" values can be replaced with variables that are
   expanded to the corresponding address:
 
     @us
       The first IP address of our virtual WireGuard interface
+
+    @usN
+      The nth IP address of our virtual WireGuard interface.
+      For example, "@us1" would expand to the second address
+      of the network interface
 
     @<peer-name>
       The address of the peer with the corresponding name according
@@ -733,13 +738,27 @@ func up() error {
 		return fmt.Errorf("failed to convert config to wg ipc format - %w", err)
 	}
 
+	wgIfaceAddrs := make([]netip.Addr, len(appCfg.Wireguard.Interface.Addresses))
+	var wgIfaceAddrsSummary string
+
+	for i, addrPrefix := range appCfg.Wireguard.Interface.Addresses {
+		addr := addrPrefix.Addr()
+		wgIfaceAddrs[i] = addr
+
+		if wgIfaceAddrsSummary != "" {
+			wgIfaceAddrsSummary += ", "
+		}
+
+		wgIfaceAddrsSummary += fmt.Sprintf("%s (%d)", addr.String(), i)
+	}
+
 	tun, tnet, err := netstack.CreateNetTUN(
-		[]netip.Addr{appCfg.Wireguard.Interface.Address.Addr()},
+		wgIfaceAddrs,
 		[]netip.Addr{},
 		*appCfg.Wireguard.Interface.MTU,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create wg tunnel interface: %w", err)
+		return fmt.Errorf("failed to create wg tunnel interface - %w", err)
 	}
 
 	dev := device.NewDevice(tun, conn.NewDefaultBind(), &device.Logger{
@@ -758,7 +777,11 @@ func up() error {
 	}
 	defer dev.Down()
 
-	loggerInfo.Println("wg device up")
+	if len(wgIfaceAddrs) == 1 {
+		loggerInfo.Printf("wg device up - address: %s", wgIfaceAddrsSummary)
+	} else {
+		loggerInfo.Printf("wg device up - addresses: %s", wgIfaceAddrsSummary)
+	}
 
 	dnsMonitorErrs := make(chan error, 1)
 	wgdns.MonitorPeers(ctx, appCfg.Wireguard.Peers, dev, dnsMonitorErrs, loggerInfo)

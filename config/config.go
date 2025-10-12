@@ -57,30 +57,31 @@ func Parse(r io.Reader) (*Config, error) {
 		}
 	}
 
-	if appConfig.Wireguard.Interface.Address == nil {
-		return nil, fmt.Errorf("failed to get our internal wg address from config")
+	addr0, err := appConfig.Wireguard.Interface.AddressByIndex(0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get wireguard interface address - %w", err)
 	}
 
-	ourWgAddrStr := appConfig.Wireguard.Interface.Address.Addr().String()
+	ifaceAddr0Str := addr0.Addr().String()
 
 	for str, forward := range appConfig.Forwarders {
 		err = replaceWgAddrShortcuts(replaceWgAddrShortcutsArgs{
-			host:      &forward.ListenAddr,
-			ourWgAddr: ourWgAddrStr,
-			wgConfig:  appConfig.Wireguard,
+			host:     &forward.ListenAddr,
+			ifAddr0:  ifaceAddr0Str,
+			wgConfig: appConfig.Wireguard,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to replace listen addr for %q - %w",
+			return nil, fmt.Errorf("failed to replace listen address for %q - %w",
 				str, err)
 		}
 
 		err = replaceWgAddrShortcuts(replaceWgAddrShortcutsArgs{
-			host:      &forward.DialAddr,
-			ourWgAddr: ourWgAddrStr,
-			wgConfig:  appConfig.Wireguard,
+			host:     &forward.DialAddr,
+			ifAddr0:  ifaceAddr0Str,
+			wgConfig: appConfig.Wireguard,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to replace dial addr for %q - %w",
+			return nil, fmt.Errorf("failed to replace dial address for %q - %w",
 				str, err)
 		}
 	}
@@ -141,14 +142,15 @@ func (o *Config) parseForwarder(fwdSection *ini.Section) error {
 }
 
 func doAutoAddrPlanning(cfg *wgconfig.Config) error {
-	ourIntAddr, err := PublicKeyToV6Addr(cfg.Interface.PublicKey[:])
+	ourAutoAddrPrefix, err := PublicKeyToV6Addr(cfg.Interface.PublicKey[:])
 	if err != nil {
 		return fmt.Errorf("failed to convert our public key to v6 addr: %q - %w",
 			wgkeys.NoisePublicKeyToString(cfg.Interface.PublicKey), err)
 	}
 
-	ourAddr := netip.PrefixFrom(ourIntAddr, 128)
-	cfg.Interface.Address = &ourAddr
+	ourAutoAddr := netip.PrefixFrom(ourAutoAddrPrefix, 128)
+
+	cfg.Interface.Addresses = append(cfg.Interface.Addresses, ourAutoAddr)
 
 	for _, peer := range cfg.Peers {
 		peerAddr, err := PublicKeyToV6Addr(peer.PublicKey[:])
@@ -173,37 +175,58 @@ func PublicKeyToV6Addr(pub []byte) (netip.Addr, error) {
 }
 
 type replaceWgAddrShortcutsArgs struct {
-	host      *Addr
-	ourWgAddr string
-	wgConfig  *wgconfig.Config
+	host     *Addr
+	ifAddr0  string
+	wgConfig *wgconfig.Config
 }
 
 func replaceWgAddrShortcuts(args replaceWgAddrShortcutsArgs) error {
-	if args.host.Host() == "@us" {
-		args.host.SetHost(args.ourWgAddr)
+	origHostStr := args.host.Host()
+
+	if !strings.HasPrefix(origHostStr, "@") {
 		return nil
 	}
 
-	if strings.HasPrefix(args.host.Host(), "@") {
-		name := args.host.Host()
-		name = name[1:]
+	if origHostStr == "@us" {
+		args.host.SetHost(args.ifAddr0)
 
-		actualPeer, hasIt := args.wgConfig.NamedPeer[name]
-		if !hasIt {
-			return fmt.Errorf("unknown peer nickname: %q", name)
-		}
+		return nil
+	}
 
-		addr, err := singleAddrPrefix(actualPeer.AllowedIPs)
+	withoutUsIndexPrefix := strings.TrimPrefix(origHostStr, "@us")
+	if len(withoutUsIndexPrefix) != len(origHostStr) {
+		index, err := strconv.ParseUint(withoutUsIndexPrefix, 10, 64)
 		if err != nil {
-			return fmt.Errorf("failed to get address for peer with nickname %q - %w",
-				name,
-				err)
+			return fmt.Errorf("failed to parse interface index string: %q - %w",
+				withoutUsIndexPrefix, err)
 		}
 
-		args.host.SetHost(addr.String())
+		addr, err := args.wgConfig.Interface.AddressByIndex(index)
+		if err != nil {
+			return fmt.Errorf("failed to lookup address index number %d - %w",
+				index, err)
+		}
+
+		args.host.SetHost(addr.Addr().String())
 
 		return nil
 	}
+
+	name := args.host.Host()
+	name = name[1:]
+
+	actualPeer, hasIt := args.wgConfig.NamedPeer[name]
+	if !hasIt {
+		return fmt.Errorf("unknown peer nickname: %q", name)
+	}
+
+	addr, err := singleAddrPrefix(actualPeer.AllowedIPs)
+	if err != nil {
+		return fmt.Errorf("failed to get address for peer with nickname %q - %w",
+			name, err)
+	}
+
+	args.host.SetHost(addr.String())
 
 	return nil
 }

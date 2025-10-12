@@ -24,7 +24,9 @@ wgu expands on wgfwd's functionality with the following features:
 - Support for resolving peers' external addresses using DNS hostnames
 - Store the private key in a file outside of the configuration file
 - Expand the WireGuard interface's address and peers' addresses using
-  magic strings
+  shortcut strings
+- Specify multiple addresses for the virtual WireGuard network interface
+  using multiple `Address` parameters
 
 ## Basic example
 
@@ -150,12 +152,15 @@ Listen = host unix example.sock
 Dial = tun tcp 10.0.0.1:22
 ```
 
-#### Forwarder magic strings
+#### Forwarder variables
 
-The "address" values can be replaced with magic strings that are
+The "address" values can be replaced with variables that are
 expanded to the corresponding address:
 
 - `@us` - The first IP address of our virtual WireGuard interface
+- `@usN` - The nth IP address of our virtual WireGuard interface.
+   For example, "@us1" would expand to the second address of the
+   network interface
 - `@<peer-name>` - The address of the peer with the corresponding name
    according to the peer's Name field
 
