@@ -729,10 +729,6 @@ func up() error {
 		return err
 	}
 
-	ctx, cancelFn := signal.NotifyContext(context.Background(),
-		syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT)
-	defer cancelFn()
-
 	ipcConfig, err := appCfg.Wireguard.IPCConfigWithoutDnsPeers()
 	if err != nil {
 		return fmt.Errorf("failed to convert config to wg ipc format - %w", err)
@@ -782,6 +778,10 @@ func up() error {
 	} else {
 		loggerInfo.Printf("wg device up - addresses: %s", wgIfaceAddrsSummary)
 	}
+
+	ctx, cancelFn := signal.NotifyContext(context.Background(),
+		syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT)
+	defer cancelFn()
 
 	dnsMonitorErrs := make(chan error, 1)
 	wgdns.MonitorPeers(ctx, appCfg.Wireguard.Peers, dev, dnsMonitorErrs, loggerInfo)
