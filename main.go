@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	version = "v0.0.10"
+	version = "v0.0.11"
 
 	appName = "wgu"
 
