@@ -793,6 +793,13 @@ func up() error {
 
 	if *child {
 		os.Stdout.WriteString("ready\n")
+
+		go func() {
+			// read will fail if the parent process has exited, we use this as
+			// a dead person's switch to ensure that the process exits
+			os.Stdin.Read(make([]byte, 1))
+			os.Exit(1)
+		}()
 	}
 
 	select {
