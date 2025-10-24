@@ -797,11 +797,24 @@ func up() error {
 
 	select {
 	case <-ctx.Done():
-		waitGroup.Wait()
-		return ctx.Err()
+		err = ctx.Err()
 	case err = <-dnsMonitorErrs:
-		return fmt.Errorf("failed to monitor peer's dns changes - %w", err)
+		err = fmt.Errorf("failed to monitor peer's dns changes - %w", err)
+		cancelFn()
 	}
+
+	onWaitGroupDone := make(chan struct{})
+	go func() {
+		waitGroup.Wait()
+		close(onWaitGroupDone)
+	}()
+
+	select {
+	case <-time.After(time.Second):
+	case <-onWaitGroupDone:
+	}
+
+	return err
 }
 
 type netOp interface {
