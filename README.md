@@ -30,6 +30,18 @@ wgu expands on wgfwd's functionality with the following features:
 - Specify multiple addresses for the virtual WireGuard network interface
   using more than one `Address` parameters
 
+## Installation
+
+First [install Go][go]. Once Go is installed, the application can be
+securely compiled from source and saved to `~/go/bin` by executing:
+
+```sh
+# Note: The resulting executable will be located in ~/go/bin:
+go install gitlab.com/stephen-fox/wgu@latest
+```
+
+[go]: https://go.dev/
+
 ## Examples
 
 ```console
@@ -44,18 +56,6 @@ For detailed examples, refer to the [examples documentation][examples]
 or execute `wgu help | less`.
 
 [examples]: docs/examples.md
-
-## Installation
-
-First [install Go][go]. Once Go is installed, the application can be
-securely compiled from source and saved to `~/go/bin` by executing:
-
-```sh
-# Note: The resulting executable will be located in ~/go/bin:
-go install gitlab.com/stephen-fox/wgu@latest
-```
-
-[go]: https://go.dev/
 
 ## Configuration
 
