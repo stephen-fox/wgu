@@ -12,17 +12,16 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
 	"gitlab.com/stephen-fox/wgu/config"
+	"gitlab.com/stephen-fox/wgu/forwarding"
 	"gitlab.com/stephen-fox/wgu/internal/wgconfig"
 	"gitlab.com/stephen-fox/wgu/internal/wgdns"
 	"gitlab.com/stephen-fox/wgu/internal/wgkeys"
@@ -32,7 +31,7 @@ import (
 )
 
 const (
-	version = "v0.0.11"
+	version = "v0.0.12"
 
 	appName = "wgu"
 
@@ -306,23 +305,8 @@ AUTOMATIC ADDRESS PLANNING MODE EXAMPLE
 	noLogTimestampsArg = "T"
 	helpArg            = "h"
 	childArg           = "c"
-	udpTimeoutArg      = "udp-timeout"
 
 	defConfigFileName = appName + ".conf"
-)
-
-var (
-	udpTimeout time.Duration
-
-	loggerInfo  = log.New(io.Discard, "", 0)
-	loggerErr   = log.New(io.Discard, "", 0)
-	loggerDebug = log.New(io.Discard, "", 0)
-
-	// These bools are used to control logging in places where
-	// performance really matters (like UDP forwarding).
-	linfo  = false
-	lerr   = false
-	ldebug = false
 )
 
 func main() {
@@ -606,12 +590,6 @@ func up() error {
 		false,
 		"Indicate that process is running as a child of another process")
 
-	flagSet.DurationVar(
-		&udpTimeout,
-		udpTimeoutArg,
-		2*time.Minute,
-		"UDP timeout")
-
 	writeConfig := flagSet.Bool(
 		"write-config",
 		false,
@@ -694,23 +672,24 @@ func up() error {
 		}
 	}
 
+	var loggerInfo *log.Logger
+	var loggerErr *log.Logger
+	var loggerDebug *log.Logger
+
 	switch *logLevelString {
 	case "debug":
-		ldebug = true
 		loggerDebug = log.New(log.Writer(), "[debug] ", log.Flags()|log.Lmsgprefix)
 		fallthrough
 	case "info":
-		linfo = true
 		loggerInfo = log.New(log.Writer(), "[info] ", log.Flags()|log.Lmsgprefix)
 		fallthrough
 	case "error":
-		lerr = true
 		loggerErr = log.New(log.Writer(), "[error] ", log.Flags()|log.Lmsgprefix)
 	default:
 		return fmt.Errorf("unknown log level: %q", *logLevelString)
 	}
 
-	if appCfg.IsAutoAddrPlanningMode {
+	if loggerInfo != nil && appCfg.IsAutoAddrPlanningMode {
 		loggerInfo.Println("automatic address planning mode is enabled")
 	}
 
@@ -757,10 +736,20 @@ func up() error {
 		return fmt.Errorf("failed to create wg tunnel interface - %w", err)
 	}
 
-	dev := device.NewDevice(tun, conn.NewDefaultBind(), &device.Logger{
-		Verbosef: loggerDebug.Printf,
-		Errorf:   loggerErr.Printf,
-	})
+	wgDeviceLogger := &device.Logger{
+		Errorf:   func(format string, args ...any) {},
+		Verbosef: func(format string, args ...any) {},
+	}
+
+	if loggerErr != nil {
+		wgDeviceLogger.Errorf = loggerErr.Printf
+	}
+
+	if loggerDebug != nil {
+		wgDeviceLogger.Verbosef = loggerDebug.Printf
+	}
+
+	dev := device.NewDevice(tun, conn.NewDefaultBind(), wgDeviceLogger)
 
 	err = dev.IpcSet(ipcConfig)
 	if err != nil {
@@ -773,10 +762,12 @@ func up() error {
 	}
 	defer dev.Down()
 
-	if len(wgIfaceAddrs) == 1 {
-		loggerInfo.Printf("wg device up - address: %s", wgIfaceAddrsSummary)
-	} else {
-		loggerInfo.Printf("wg device up - addresses: %s", wgIfaceAddrsSummary)
+	if loggerInfo != nil {
+		if len(wgIfaceAddrs) == 1 {
+			loggerInfo.Printf("wg device up - address: %s", wgIfaceAddrsSummary)
+		} else {
+			loggerInfo.Printf("wg device up - addresses: %s", wgIfaceAddrsSummary)
+		}
 	}
 
 	ctx, cancelFn := signal.NotifyContext(context.Background(),
@@ -786,7 +777,15 @@ func up() error {
 	dnsMonitorErrs := make(chan error, 1)
 	wgdns.MonitorPeers(ctx, appCfg.Wireguard.Peers, dev, dnsMonitorErrs, loggerInfo)
 
-	waitGroup, err := startForwarders(ctx, tnet, appCfg.Forwarders)
+	waitGroup, err := forwarding.StartForwarders(ctx, forwarding.StartForwardersArgs{
+		TunNet:      tnet,
+		StrsToSpecs: appCfg.Forwarders,
+		Loggers: forwarding.Loggers{
+			Info:  loggerInfo,
+			Err:   loggerErr,
+			Debug: loggerDebug,
+		},
+	})
 	if err != nil {
 		return fmt.Errorf("failed to start network forwarders - %w", err)
 	}
@@ -807,6 +806,7 @@ func up() error {
 		err = ctx.Err()
 	case err = <-dnsMonitorErrs:
 		err = fmt.Errorf("failed to monitor peer's dns changes - %w", err)
+
 		cancelFn()
 	}
 
@@ -822,464 +822,4 @@ func up() error {
 	}
 
 	return err
-}
-
-type netOp interface {
-	Dial(ctx context.Context, network string, address string) (net.Conn, error)
-	Listen(ctx context.Context, network string, address string) (net.Listener, error)
-	ListenPacket(ctx context.Context, network string, address string) (net.PacketConn, error)
-}
-
-type localNetOp struct{}
-
-func (n *localNetOp) Dial(ctx context.Context, network string, address string) (net.Conn, error) {
-	var d net.Dialer
-	return d.DialContext(ctx, network, address)
-}
-
-func (n *localNetOp) Listen(ctx context.Context, network string, address string) (net.Listener, error) {
-	var l net.ListenConfig
-	return l.Listen(ctx, network, address)
-}
-
-func (n *localNetOp) ListenPacket(ctx context.Context, network string, address string) (net.PacketConn, error) {
-	var l net.ListenConfig
-	return l.ListenPacket(ctx, network, address)
-}
-
-type tunnelNetOp struct {
-	tun *netstack.Net
-}
-
-func (n *tunnelNetOp) Dial(ctx context.Context, network string, address string) (net.Conn, error) {
-	return n.tun.DialContext(ctx, network, address)
-}
-
-func (n *tunnelNetOp) Listen(ctx context.Context, network string, address string) (net.Listener, error) {
-	addr, err := net.ResolveTCPAddr(network, address)
-	if err != nil {
-		return nil, err
-	}
-	return n.tun.ListenTCP(addr)
-}
-
-func (n *tunnelNetOp) ListenPacket(ctx context.Context, network string, address string) (net.PacketConn, error) {
-	addr, err := net.ResolveUDPAddr(network, address)
-	if err != nil {
-		return nil, err
-	}
-	return n.tun.ListenUDP(addr)
-}
-
-func startForwarders(ctx context.Context, tnet *netstack.Net, forwards map[string]*config.ForwarderSpec) (*sync.WaitGroup, error) {
-	waitGroup := &sync.WaitGroup{}
-	var localNetOp = &localNetOp{}
-	var tunnelNetOp = &tunnelNetOp{tnet}
-
-	for fwdStr, fwd := range forwards {
-		var listenNet netOp
-		switch fwd.ListenNet {
-		case config.HostNetStackT:
-			listenNet = localNetOp
-		case config.TunNetStackT:
-			listenNet = tunnelNetOp
-		default:
-			return nil, fmt.Errorf("unsupported listen net stack: %q", fwd.ListenNet)
-		}
-
-		var dialNet netOp
-		switch fwd.DialNet {
-		case config.HostNetStackT:
-			dialNet = localNetOp
-		case config.TunNetStackT:
-			dialNet = tunnelNetOp
-		default:
-			return nil, fmt.Errorf("unsupported dial net stack: %q", fwd.DialNet)
-		}
-
-		loggerInfo.Printf("starting %q (%s)...", fwd.Name, fwd.String())
-
-		var err error
-
-		switch {
-		case fwd.ListenAddr.Protocol().IsStream():
-			err = forwardStream(ctx, waitGroup, fwd, listenNet, dialNet)
-		case fwd.ListenAddr.Protocol().IsDatagram():
-			err = forwardDatagram(ctx, waitGroup, fwd, listenNet, dialNet)
-		default:
-			err = fmt.Errorf("unsupported listen protocol: %q", fwd.ListenAddr.Protocol())
-		}
-
-		if err != nil {
-			return nil, fmt.Errorf("failed to forward %q - %w", fwdStr, err)
-		}
-	}
-
-	return waitGroup, nil
-}
-
-func forwardStream(ctx context.Context, waitg *sync.WaitGroup, spec *config.ForwarderSpec, lNet netOp, dNet netOp) error {
-	listener, err := lNet.Listen(ctx, string(spec.ListenAddr.Protocol()), spec.ListenAddr.String())
-	if err != nil {
-		return err
-	}
-
-	go func() {
-		<-ctx.Done()
-
-		loggerInfo.Printf("[%s] stopping forwarder...",
-			spec.Name)
-
-		listener.Close()
-	}()
-
-	waitg.Add(1)
-	go func() {
-		defer waitg.Done()
-
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				if lerr {
-					loggerErr.Printf("[%s] error accepting connection - %s",
-						spec.Name, err)
-				}
-
-				return
-			}
-
-			if ldebug {
-				loggerDebug.Printf("[%s] accepted connection from %s",
-					spec.Name, conn.RemoteAddr())
-			}
-
-			go dialAndCopyStream(ctx, conn, dNet, spec)
-		}
-	}()
-
-	loggerInfo.Printf("[%s] stream forwarder started",
-		spec.Name)
-
-	return nil
-}
-
-func dialAndCopyStream(ctx context.Context, src net.Conn, dNet netOp, spec *config.ForwarderSpec) {
-	defer src.Close()
-
-	var dst net.Conn
-	var err error
-
-	if spec.OptDialTimeout > 0 {
-		retrier := retryDialer{dNet.Dial}
-
-		dst, err = retrier.dial(
-			ctx,
-			string(spec.DialAddr.Protocol()),
-			spec.DialAddr.String(),
-			spec.OptDialTimeout)
-	} else {
-		dst, err = dNet.Dial(
-			ctx,
-			string(spec.DialAddr.Protocol()),
-			spec.DialAddr.String())
-	}
-
-	if err != nil {
-		if lerr {
-			loggerErr.Printf("[%s] error connecting to remote - %s",
-				spec.Name, err)
-		}
-
-		return
-	}
-	defer dst.Close()
-
-	if ldebug {
-		loggerDebug.Printf("[%s] new stream connection forwarded",
-			spec.Name)
-	}
-
-	done := make(chan string, 2)
-
-	go func() {
-		_, err := io.Copy(dst, src)
-		if ldebug {
-			done <- fmt.Sprintf("error copying from %s: %v",
-				spec.DialAddr.String(), err)
-		} else {
-			done <- ""
-		}
-	}()
-
-	go func() {
-		_, err := io.Copy(src, dst)
-		if ldebug {
-			done <- fmt.Sprintf("error copying to %s: %v",
-				src.RemoteAddr(), err)
-		} else {
-			done <- ""
-		}
-	}()
-
-	select {
-	case <-ctx.Done():
-		return
-	case reason := <-done:
-		if reason != "" {
-			loggerDebug.Printf("[%s] connection from %s closed - %s",
-				spec.Name, src.RemoteAddr(), reason)
-		}
-	}
-}
-
-func forwardDatagram(ctx context.Context, waitg *sync.WaitGroup, spec *config.ForwarderSpec, lNet netOp, dNet netOp) error {
-	localConn, err := lNet.ListenPacket(ctx, string(spec.ListenAddr.Protocol()), spec.ListenAddr.String())
-	if err != nil {
-		return err
-	}
-
-	srcToDstConns := newConnMap()
-
-	go func() {
-		<-ctx.Done()
-
-		loggerInfo.Printf("[%s] stopping datagram forwarder...",
-			spec.Name)
-
-		localConn.Close()
-
-		srcToDstConns.do(func(m map[string]net.Conn) {
-			for addr, c := range m {
-				c.Close()
-				delete(m, addr)
-			}
-		})
-	}()
-
-	waitg.Add(1)
-	go func() {
-		defer waitg.Done()
-
-		const bufSizeBytes = 1392
-		buffer := make([]byte, bufSizeBytes)
-
-		lAddrStr := spec.ListenAddr.String()
-		dAddrStr := spec.DialAddr.String()
-
-		for {
-			n, srcAddr, err := localConn.ReadFrom(buffer)
-			if err != nil {
-				if ldebug {
-					loggerDebug.Printf("[%s] error reading from datagram listener - %#v",
-						spec.Name, err)
-				}
-
-				return
-			}
-
-			srcAddrStr := srcAddr.String()
-
-			if ldebug {
-				loggerDebug.Printf("[%s] received %d bytes from %s for %s",
-					spec.Name, n, srcAddrStr, lAddrStr)
-			}
-
-			remote, hasIt := srcToDstConns.lookup(srcAddrStr)
-			if hasIt {
-				n, err = remote.Write(buffer[:n])
-				if err != nil {
-					if lerr {
-						loggerErr.Printf("[%s] error writing to remote %s - %s",
-							spec.Name, srcAddrStr, err)
-					}
-
-					continue
-				}
-
-				if ldebug {
-					loggerDebug.Printf("[%s] forwarded %d bytes from %s",
-						spec.Name, n, srcAddrStr)
-				}
-
-				continue
-			}
-
-			go dialAndCopyDatagram(ctx, dialAndCopyDatagramArgs{
-				name:        spec.Name,
-				localConn:   localConn,
-				srcAddr:     srcAddr,
-				srcAddrStr:  srcAddrStr,
-				dNet:        dNet,
-				dProto:      spec.DialAddr.Protocol(),
-				dAddrStr:    dAddrStr,
-				bufSizeByte: bufSizeBytes,
-				remoteConns: srcToDstConns,
-				optTimeout:  spec.OptDialTimeout,
-			})
-		}
-	}()
-
-	loggerInfo.Printf("[%s] datagram forwarder started",
-		spec.Name)
-
-	return nil
-}
-
-type dialAndCopyDatagramArgs struct {
-	name        string
-	localConn   net.PacketConn
-	srcAddr     net.Addr
-	srcAddrStr  string
-	dNet        netOp
-	dProto      config.ProtocolT
-	dAddrStr    string
-	bufSizeByte int
-	remoteConns *connMap
-	optTimeout  time.Duration
-}
-
-func dialAndCopyDatagram(ctx context.Context, args dialAndCopyDatagramArgs) {
-	var remote net.Conn
-	var err error
-
-	if args.optTimeout > 0 {
-		retrier := retryDialer{args.dNet.Dial}
-
-		remote, err = retrier.dial(
-			ctx,
-			string(args.dProto),
-			args.dAddrStr,
-			args.optTimeout)
-	} else {
-		remote, err = args.dNet.Dial(
-			ctx,
-			string(args.dProto),
-			args.dAddrStr)
-	}
-
-	if err != nil {
-		if lerr {
-			loggerErr.Printf("[%s] error connecting to remote - %s",
-				args.name, err)
-		}
-
-		return
-	}
-
-	args.remoteConns.set(args.srcAddrStr, remote)
-
-	defer args.remoteConns.delete(args.srcAddrStr)
-
-	buffer := make([]byte, args.bufSizeByte)
-
-	for {
-		remote.SetReadDeadline(time.Now().Add(udpTimeout))
-
-		n, err := remote.Read(buffer)
-		if err != nil {
-			if ldebug {
-				loggerDebug.Printf("[%s] error reading from socket - %s",
-					args.name, err)
-			}
-
-			return
-		}
-
-		if ldebug {
-			loggerDebug.Printf("[%s] received %d bytes from %s for %s",
-				args.name, n, args.dAddrStr, remote.LocalAddr())
-		}
-
-		_, err = args.localConn.WriteTo(buffer[:n], args.srcAddr)
-		if err != nil {
-			if ldebug {
-				loggerDebug.Printf("[%s] error writing to local - %s",
-					args.name, err)
-			}
-
-			return
-		}
-
-		if ldebug {
-			loggerDebug.Printf("[%s] forwarded %d bytes from %s to %s",
-				args.name, n, args.dAddrStr, args.srcAddr)
-		}
-	}
-}
-
-func newConnMap() *connMap {
-	return &connMap{
-		conns: make(map[string]net.Conn),
-	}
-}
-
-type connMap struct {
-	rwMu  sync.RWMutex
-	conns map[string]net.Conn
-}
-
-func (o *connMap) set(addr string, conn net.Conn) {
-	o.rwMu.Lock()
-	defer o.rwMu.Unlock()
-
-	o.conns[addr] = conn
-}
-
-func (o *connMap) do(fn func(m map[string]net.Conn)) {
-	o.rwMu.Lock()
-	defer o.rwMu.Unlock()
-
-	fn(o.conns)
-}
-
-func (o *connMap) lookup(addr string) (net.Conn, bool) {
-	o.rwMu.RLock()
-	defer o.rwMu.RUnlock()
-
-	conn, ok := o.conns[addr]
-
-	return conn, ok
-}
-
-func (o *connMap) delete(addr string) {
-	o.rwMu.Lock()
-	defer o.rwMu.Unlock()
-
-	delete(o.conns, addr)
-}
-
-type retryDialer struct {
-	DialFn func(ctx context.Context, network string, address string) (net.Conn, error)
-}
-
-func (o *retryDialer) dial(ctx context.Context, network string, addr string, timeout time.Duration) (net.Conn, error) {
-	wctx, cancelFn := context.WithTimeout(ctx, timeout)
-	defer cancelFn()
-
-	sleep := time.Second
-	scale := time.Duration(2)
-	attempts := 0
-
-	for {
-		attempts++
-
-		conn, err := o.DialFn(wctx, network, addr)
-		if err == nil {
-			return conn, nil
-		}
-
-		select {
-		case <-wctx.Done():
-			return nil, fmt.Errorf("gave up connecting after %d attempt(s) - %w (last error: %v)",
-				attempts, wctx.Err(), err)
-		case <-time.After(sleep):
-			// 1 * 2
-			// 1 * 5
-			// 1 * 8
-			// 1 * 11
-			sleep = sleep * scale
-
-			scale = scale + 3
-		}
-	}
 }
