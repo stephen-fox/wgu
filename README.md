@@ -5,6 +5,8 @@ wgu creates WireGuard tunnels without superuser privileges. Connections to
 network services are managed using forwarders. Each forwarder tells wgu
 where to listen for incoming connections and where to forward connections to.
 
+Think of it like SSH port forwarding, but in WireGuard.
+
 [wgfwd]: https://github.com/jgiannuzzi/wgfwd
 
 ## Features
