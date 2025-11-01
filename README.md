@@ -65,7 +65,7 @@ Please refer to the [configuration documentation][configuration]
 
 Please refer to the [commands documentation][commands]
 
-[commands]: docs/command.md
+[commands]: docs/commands.md
 
 ## Troubleshooting
 
