@@ -7,7 +7,11 @@ where to listen for incoming connections and where to forward connections to.
 
 Think of it like SSH port forwarding, but in WireGuard.
 
+If you would like a graphical user interface of wgu, check out
+Seung Kang's [wgui][wgui].
+
 [wgfwd]: https://github.com/jgiannuzzi/wgfwd
+[wgui]: https://github.com/SeungKang/wgui
 
 ## Features
 
