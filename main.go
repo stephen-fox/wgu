@@ -1,8 +1,12 @@
-// wgu (WireGuard Userspace) is a fork of Jonathan Giannuzzi's wgfwd.
-// wgu creates WireGuard tunnels without superuser privileges.
-// Connections to network services are managed using forwarders.
-// Each forwarder tells wgu where to listen for incoming connections
-// and where to forward connections to.
+// wgu (WireGuard Userspace, pronounced "woo-goo" or "w-g-u") is a fork
+// of Jonathan Giannuzzi's wgfwd. wgu creates WireGuard tunnels without
+// superuser privileges. Connections to network services are managed
+// using forwarders. Each forwarder tells wgu where to listen for
+// incoming connections and where to forward connections to.
+//
+// Think of wgu like SSH port forwarding, but with WireGuard instead of SSH.
+//
+// If you would like a graphical version of wgu, check out Seung Kang's wgui.
 package main
 
 import (
@@ -45,11 +49,11 @@ const (
   ` + appName + ` ` + upCmd + ` [options] [config-file]
 
 DESCRIPTION
-  wgu (WireGuard Userspace) is a fork of Jonathan Giannuzzi's wgfwd.
-  wgu creates WireGuard tunnels without superuser privileges.
-  Connections to network services are managed using forwarders.
-  Each forwarder tells wgu where to listen for incoming connections
-  and where to forward connections to.
+  wgu (WireGuard Userspace, pronounced "woo-goo" or "w-g-u") is a fork
+  of Jonathan Giannuzzi's wgfwd. wgu creates WireGuard tunnels without
+  superuser privileges. Connections to network services are managed
+  using forwarders. Each forwarder tells wgu where to listen for
+  incoming connections and where to forward connections to.
 
   For detailed documentation and configuration examples, please execute:
     ` + appName + ` ` + helpCmd + `
