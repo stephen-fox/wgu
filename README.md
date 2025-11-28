@@ -34,6 +34,7 @@ wgu expands on wgfwd's functionality with the following features:
   variable strings
 - Specify multiple addresses for the virtual WireGuard network interface
   using more than one `Address` parameters
+- Tap and packet capture functionality (disabled by default at compile-time)
 
 ## Installation
 
