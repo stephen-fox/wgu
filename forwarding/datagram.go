@@ -50,7 +50,6 @@ func forwardDatagram(ctx context.Context, args forwardDatagramArgs) error {
 		const bufSizeBytes = 1392
 		buffer := make([]byte, bufSizeBytes)
 
-		lAddrStr := args.spec.ListenAddr.String()
 		dAddrStr := args.spec.DialAddr.String()
 
 		for {
@@ -66,11 +65,6 @@ func forwardDatagram(ctx context.Context, args forwardDatagramArgs) error {
 
 			srcAddrStr := srcAddr.String()
 
-			if args.loggers.Debug != nil {
-				args.loggers.Debug.Printf("[%s] received %d bytes from %s for %s",
-					args.spec.Name, n, srcAddrStr, lAddrStr)
-			}
-
 			remote, hasIt := srcToDstConns.lookup(srcAddrStr)
 			if hasIt {
 				n, err = remote.Write(buffer[:n])
@@ -81,11 +75,6 @@ func forwardDatagram(ctx context.Context, args forwardDatagramArgs) error {
 					}
 
 					continue
-				}
-
-				if args.loggers.Debug != nil {
-					args.loggers.Debug.Printf("[%s] forwarded %d bytes from %s",
-						args.spec.Name, n, srcAddrStr)
 				}
 
 				continue
@@ -176,11 +165,6 @@ func dialAndCopyDatagram(ctx context.Context, args dialAndCopyDatagramArgs) {
 			return
 		}
 
-		if args.loggers.Debug != nil {
-			args.loggers.Debug.Printf("[%s] received %d bytes from %s for %s",
-				args.name, n, args.dAddrStr, remote.LocalAddr())
-		}
-
 		_, err = args.localConn.WriteTo(buffer[:n], args.srcAddr)
 		if err != nil {
 			if args.loggers.Debug != nil {
@@ -189,11 +173,6 @@ func dialAndCopyDatagram(ctx context.Context, args dialAndCopyDatagramArgs) {
 			}
 
 			return
-		}
-
-		if args.loggers.Debug != nil {
-			args.loggers.Debug.Printf("[%s] forwarded %d bytes from %s to %s",
-				args.name, n, args.dAddrStr, args.srcAddr)
 		}
 	}
 }
