@@ -105,3 +105,56 @@ expanded to the corresponding address:
    network interface
 - `@<peer-name>` - The address of the peer with the corresponding name
    according to the peer's Name field
+
+## Tap and packet capture functionality
+
+wgu provides functionality for capturing unencrypted traffic transiting
+the WireGuard tunnel via the `Tap` configuration parameter and the
+[`wgupcap` tool](../tools/wgupcap). Tap functionality works by configuring
+wgu to create a network listener (such as a Unix listener socket) and
+pointing the wgupcap application at the listener socket. The wgupcap
+application converts the raw packets into pcap format which can be
+passed to tools like tcpdump and Wireshark.
+
+Tap functionality is disabled by default for security. To enable tap
+functionality, compile wgu with the `tap_enabled` build tag:
+
+```sh
+go build -tags tap_enabled
+```
+
+To create a tap, add a `Tap` parameter to the `[wgu]` section of the
+configuration file. The value should be of the format:
+
+```
+<listener-protocol> <listen-address>
+```
+
+For example, to create a tap that creates a Unix listener socket at
+`/home/user/.wgu/tap.sock`:
+
+```ini
+Tap = unix /home/user/.wgu/tap.sock
+```
+
+In the example above, wgu will create a Unix listener socket and write
+all tunnel traffic to any clients that connect to the listener.
+
+To parse the data produced by the tap listener, we need wgupcap.
+To compile the wgupcap application, execute:
+
+```sh
+cd tools/wgupcap
+go install
+```
+
+Now we can point wgupcap at the tap listener and pipe its output to
+a packet sniffer application:
+
+```sh
+# tcpdump:
+wgupcap /home/user/.wgu/tap.sock | tcpdump -r -
+
+# Wireshark:
+wgupcap /home/user/.wgu/tap.sock /Applications/Wireshark.app/Contents/MacOS/Wireshark -ki -
+```

@@ -97,6 +97,20 @@ like so:
  }
 ```
 
+#### Packet transit problems and packet captures
+
+wgu provides functionality for capturing unencrypted traffic transiting
+the WireGuard tunnel via the `Tap` configuration parameter and the
+[`wgupcap` tool](tools/wgupcap). Tap functionality is disabled by
+default for security. Tap functionality can only be enabled by doing
+the following:
+
+- Enabling the feature at compile-time
+- Configuring the feature in the configuration file
+
+For more information on this topic, please refer to
+the [configuration documentation][configuration].
+
 ## Special thanks
 
 wgu would not have been possible without Jonathan Giannuzzi's original wgfwd

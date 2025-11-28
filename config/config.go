@@ -11,12 +11,14 @@ import (
 	"gitlab.com/stephen-fox/wgu/internal/ini"
 	"gitlab.com/stephen-fox/wgu/internal/wgconfig"
 	"gitlab.com/stephen-fox/wgu/internal/wgkeys"
+	"gitlab.com/stephen-fox/wgu/internal/wgtap"
 )
 
 // App-level config stuff.
 const (
 	AppOptionsConfigSection       = "wgu"
 	AutoAddrPlanningModeConfigOpt = "AutomaticAddressPlanningMode"
+	TapConfigOpt                  = "Tap"
 	LogLevelConfigOpt             = "LogLevel"
 )
 
@@ -93,9 +95,12 @@ type Config struct {
 	IsAutoAddrPlanningMode bool
 	OptLogLevel            string
 	Forwarders             map[string]*ForwarderSpec
+	OptTap                 wgtap.TapConfig
 	Wireguard              *wgconfig.Config
 }
 
+// TODO: Switch to looping over Section entries and disallow
+// unknown param names.
 func (o *Config) parseAppOptions(options *ini.Section) error {
 	autoAddrPlanning, _ := options.FirstParam(AutoAddrPlanningModeConfigOpt)
 	if autoAddrPlanning != nil {
@@ -106,6 +111,22 @@ func (o *Config) parseAppOptions(options *ini.Section) error {
 		}
 
 		o.IsAutoAddrPlanningMode = enabled
+	}
+
+	tapConfig, _ := options.FirstParam(TapConfigOpt)
+	if tapConfig != nil {
+		const sep = " "
+
+		proto, addr, hasSep := strings.Cut(tapConfig.Value, sep)
+		if !hasSep {
+			return errors.New("tap param value missing '" + sep +
+				"' separator (format should be: '<proto> <addr>')")
+		}
+
+		o.OptTap = wgtap.TapConfig{
+			Protocol: proto,
+			Address:  addr,
+		}
 	}
 
 	logLevel, _ := options.FirstParam(LogLevelConfigOpt)

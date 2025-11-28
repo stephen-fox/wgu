@@ -29,13 +29,14 @@ import (
 	"gitlab.com/stephen-fox/wgu/internal/wgconfig"
 	"gitlab.com/stephen-fox/wgu/internal/wgdns"
 	"gitlab.com/stephen-fox/wgu/internal/wgkeys"
+	"gitlab.com/stephen-fox/wgu/internal/wgtap"
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 )
 
 const (
-	version = "v0.0.12"
+	version = "v0.0.13"
 
 	appName = "wgu"
 
@@ -738,6 +739,21 @@ func up() error {
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create wg tunnel interface - %w", err)
+	}
+
+	if appCfg.OptTap.Address != "" {
+		ctx, cancelFn := context.WithCancel(context.Background())
+		defer cancelFn()
+
+		tun, err = wgtap.Setup(ctx, tun, appCfg.OptTap)
+		if err != nil {
+			return fmt.Errorf("failed to create tapped wg tun device - %w", err)
+		}
+
+		if loggerInfo != nil {
+			loggerInfo.Printf("[warn] added tap to wg tun device at: %q %q",
+				appCfg.OptTap.Protocol, appCfg.OptTap.Address)
+		}
 	}
 
 	wgDeviceLogger := &device.Logger{
