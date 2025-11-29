@@ -156,5 +156,5 @@ a packet sniffer application:
 wgupcap /home/user/.wgu/tap.sock | tcpdump -r -
 
 # Wireshark:
-wgupcap /home/user/.wgu/tap.sock /Applications/Wireshark.app/Contents/MacOS/Wireshark -ki -
+wgupcap /home/user/.wgu/tap.sock | /Applications/Wireshark.app/Contents/MacOS/Wireshark -ki -
 ```
