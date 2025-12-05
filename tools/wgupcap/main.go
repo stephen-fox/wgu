@@ -128,34 +128,49 @@ func mainWithError() error {
 
 	reader := bufio.NewReader(conn)
 
-	msgBuf := make([]byte, uint16(0xffff))
+	// 65575 is the maximum size of an IPv6 packet
+	msgBuf := make([]byte, 65575)
 
 	// From https://www.tcpdump.org/linktypes/LINKTYPE_RAW.html:
 	//
 	//   LINKTYPE_RAW - Packets are IPv4 or IPv6 datagrams;
 	//   the packet begins with an IPv4 or IPv6 header, with
-	//   theversion field of the header indicating whether
+	//   the version field of the header indicating whether
 	//   it's an IPv4 or IPv6 packet.
-	pcapWriter.WriteFileHeader(0xffff, layers.LinkTypeRaw)
+	err = pcapWriter.WriteFileHeader(uint32(len(msgBuf)), layers.LinkTypeRaw)
+	if err != nil {
+		return err
+	}
 
 	for {
-		_, err := reader.Read(msgBuf[0:2])
+		_, err := io.ReadFull(reader, msgBuf[0:12])
 		if err != nil {
 			return err
 		}
 
-		packetSize := binary.LittleEndian.Uint16(msgBuf[0:2])
+		packetTimeStamp := time.UnixMilli(int64(binary.LittleEndian.Uint64(msgBuf[0:8])))
 
-		_, err = reader.Read(msgBuf[0:packetSize])
+		packetLen := binary.LittleEndian.Uint32(msgBuf[8:12])
+		if packetLen == 0 {
+			// zero-length payload — skip or treat as error; here we skip
+			continue
+		}
+
+		if packetLen > uint32(len(msgBuf)) {
+			return fmt.Errorf("invalid packet length %d (exceeds buffer %d)",
+				packetLen, len(msgBuf))
+		}
+
+		_, err = io.ReadFull(reader, msgBuf[0:packetLen])
 		if err != nil {
 			return err
 		}
 
 		err = pcapWriter.WritePacket(gopacket.CaptureInfo{
-			Timestamp:     time.Now(),
-			CaptureLength: int(packetSize),
-			Length:        int(packetSize),
-		}, msgBuf[0:packetSize])
+			Timestamp:     packetTimeStamp,
+			CaptureLength: int(packetLen),
+			Length:        int(packetLen),
+		}, msgBuf[0:packetLen])
 		if err != nil {
 			return fmt.Errorf("failed to write packet to pcap writer - %w", err)
 		}

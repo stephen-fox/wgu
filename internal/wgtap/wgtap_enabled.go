@@ -191,10 +191,15 @@ func (o *Tap) loop(ctx context.Context) {
 	writeToClientFn := func(packet []byte, conn net.Conn) bool {
 		packetLen := len(packet)
 
-		msg := make([]byte, packetLen+2)
+		// header: 8 bytes (timestamp) + 4 bytes (len)
+		msg := make([]byte, 8+4+packetLen)
 
-		binary.LittleEndian.PutUint16(msg, uint16(len(packet)))
-		copy(msg[2:], packet)
+		ts := uint64(time.Now().UnixMilli())
+		binary.LittleEndian.PutUint64(msg[0:8], ts)
+
+		binary.LittleEndian.PutUint32(msg[8:12], uint32(packetLen))
+
+		copy(msg[12:], packet)
 
 		conn.SetDeadline(time.Now().Add(time.Second))
 
@@ -227,6 +232,7 @@ func (o *Tap) loop(ctx context.Context) {
 
 			if queue.Len() > 0 {
 				for e := queue.Front(); e != nil; e = e.Next() {
+					// TODO: how to remove element (e) from the list inside the for loop
 					data := e.Value.([]byte)
 
 					if !writeToClientFn(data, conn) {
@@ -238,6 +244,7 @@ func (o *Tap) loop(ctx context.Context) {
 			}
 		case packet := <-o.packets:
 			if len(activeClients) == 0 {
+				// TODO: upperlimit for how bit the queue can get, and dropping things from the queue
 				queue.PushBack(packet)
 
 				continue
