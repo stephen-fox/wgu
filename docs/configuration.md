@@ -120,7 +120,8 @@ Tap functionality is disabled by default for security. To enable tap
 functionality, compile wgu with the `tap_enabled` build tag:
 
 ```sh
-go build -tags tap_enabled
+cd wgu
+go install -tags tap_enabled
 ```
 
 To create a tap, add a `Tap` parameter to the `[wgu]` section of the
@@ -144,7 +145,7 @@ To parse the data produced by the tap listener, we need wgupcap.
 To compile the wgupcap application, execute:
 
 ```sh
-cd tools/wgupcap
+cd wgu/tools/wgupcap
 go install
 ```
 
