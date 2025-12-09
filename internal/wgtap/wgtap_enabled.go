@@ -3,7 +3,6 @@
 package wgtap
 
 import (
-	"container/list"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -39,7 +38,7 @@ func Setup(ctx context.Context, dev tun.Device, config TapConfig) (*TappedDevice
 		listener:  listener,
 		acceptErr: make(chan error, 1),
 		accepts:   make(chan net.Conn),
-		packets:   make(chan []byte, 10),
+		packets:   make(chan queuedPacket, 1024),
 		done:      make(chan struct{}),
 	}
 
@@ -144,7 +143,7 @@ type Tap struct {
 	listener  net.Listener
 	acceptErr chan error
 	accepts   chan net.Conn
-	packets   chan []byte
+	packets   chan queuedPacket
 	done      chan struct{}
 	err       error
 }
@@ -171,6 +170,11 @@ func (o *Tap) acceptClientsLoop() {
 	}
 }
 
+type queuedPacket struct {
+	data      []byte
+	timestamp uint64
+}
+
 func (o *Tap) loop(ctx context.Context) {
 	activeClients := make(map[net.Conn]struct{})
 
@@ -186,22 +190,19 @@ func (o *Tap) loop(ctx context.Context) {
 		close(o.done)
 	}()
 
-	queue := list.New()
-
-	writeToClientFn := func(packet []byte, conn net.Conn) bool {
-		packetLen := len(packet)
+	writeToClientFn := func(qp queuedPacket, conn net.Conn) bool {
+		packetLen := len(qp.data)
 
 		// header: 8 bytes (timestamp) + 4 bytes (len)
 		msg := make([]byte, 8+4+packetLen)
 
-		ts := uint64(time.Now().UnixMilli())
-		binary.LittleEndian.PutUint64(msg[0:8], ts)
+		binary.LittleEndian.PutUint64(msg[0:8], qp.timestamp)
 
 		binary.LittleEndian.PutUint32(msg[8:12], uint32(packetLen))
 
-		copy(msg[12:], packet)
+		copy(msg[12:], qp.data)
 
-		conn.SetDeadline(time.Now().Add(time.Second))
+		conn.SetDeadline(time.Now().Add(time.Minute))
 
 		_, err := conn.Write(msg)
 		if err != nil {
@@ -229,27 +230,7 @@ func (o *Tap) loop(ctx context.Context) {
 			return
 		case conn := <-o.accepts:
 			activeClients[conn] = struct{}{}
-
-			if queue.Len() > 0 {
-				for e := queue.Front(); e != nil; e = e.Next() {
-					// TODO: how to remove element (e) from the list inside the for loop
-					data := e.Value.([]byte)
-
-					if !writeToClientFn(data, conn) {
-						break
-					}
-				}
-
-				queue.Init()
-			}
 		case packet := <-o.packets:
-			if len(activeClients) == 0 {
-				// TODO: upperlimit for how bit the queue can get, and dropping things from the queue
-				queue.PushBack(packet)
-
-				continue
-			}
-
 			for conn := range activeClients {
 				writeToClientFn(packet, conn)
 			}
@@ -262,13 +243,17 @@ func (o *Tap) Write(b []byte) (int, error) {
 		return len(b), nil
 	}
 
-	cp := make([]byte, len(b))
+	packetCopy := make([]byte, len(b))
 
-	copy(cp, b)
+	copy(packetCopy, b)
 
 	select {
 	case <-o.done:
-	case o.packets <- cp:
+	case o.packets <- queuedPacket{
+		data:      packetCopy,
+		timestamp: uint64(time.Now().UnixMilli()),
+	}:
+	default:
 	}
 
 	return len(b), nil
